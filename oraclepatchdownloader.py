@@ -27,7 +27,7 @@ class OraclePatchDownloader:
     def __init__(self, username, password):
         """Builds an Oracle Patch downloader.
 
-        Creates an empty cookie jar with logon information.
+        Creates an empty cookie jar to store logon information.
 
         Args:
             username (str): Oracle Support Username
