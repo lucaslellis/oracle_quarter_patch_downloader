@@ -1,0 +1,5 @@
+comandos_wget.txt
+config.json
+cookies.txt
+patches/*
+*.pyc

@@ -1,0 +1,10 @@
+{
+    "username": "Oracle Support User",
+    "password": "Oracle Support Password",
+    "target_dir": "/home/oracle/patches",
+    "platforms": [
+        "IBM AIX on POWER Systems (64-bit)",
+        "Linux x86-64",
+        "Microsoft Windows x64 (64-bit)"
+    ]
+}
