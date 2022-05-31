@@ -16,11 +16,6 @@ Requires:
     - html5lib
 """
 
-_AHF_PATCH_NUMBER = "30166242"
-_OPATCH_PATCH_NUMBER = "6880880"
-
-_CONFIG_FILE = "config.json"
-
 import json
 import math
 import os
@@ -28,9 +23,21 @@ import sys
 
 from oraclepatchdownloader import OraclePatchDownloader
 
+_AHF_PATCH_NUMBER = "30166242"
+_OPATCH_PATCH_NUMBER = "6880880"
+
+_CONFIG_FILE = "config.json"
+
 
 def print_progress_function(file_name, file_size, total_downloaded):
-    formatted_file_size_mb = "{:.0f}".format(file_size / 1024 / 1024)
+    """Prints a progress indicator for the downloads
+
+    Args:
+        file_name (str): Name of the file being downloaded
+        file_size (int): File's total size in bytes
+        total_downloaded (int): Bytes already downloaded
+    """
+    formatted_file_size_mb = f"{(file_size / 1024 / 1024):.0f}"
     if file_size:
         pct = math.floor(total_downloaded * 100 / file_size)
     else:
@@ -50,9 +57,14 @@ def print_progress_function(file_name, file_size, total_downloaded):
 
 def main(argv=None):
     """Entry point."""
+    if argv is None:
+        argv = sys.argv
 
     config_json = []
-    with open(os.path.join(sys.path[0], _CONFIG_FILE)) as config_file:
+    with open(
+        os.path.join(sys.path[0], _CONFIG_FILE),
+        encoding="utf-8"
+    ) as config_file:
         config_json = json.load(config_file)
 
     if config_json is None:

@@ -8,7 +8,6 @@ Requires:
     - html5lib
 """
 
-from genericpath import exists
 import os
 import pathlib
 import re
@@ -17,6 +16,13 @@ from http import HTTPStatus
 import requests
 from bs4 import BeautifulSoup
 
+# Mandatory as it's the only way to escape Oracle's JavaScript check
+_HEADERS = {"User-Agent": "Wget/1.20.3"}
+
+# Mandatory as sometimes Oracle's HTML is broken
+_DEFAULT_HTML_PARSER = "html5lib"
+
+_CHUNK_SIZE = 2097152  # 2 MB
 
 class OraclePatchDownloader:
     """Class that enables downloading Oracle patches
@@ -39,13 +45,6 @@ class OraclePatchDownloader:
         self.username = username
         self.password = password
 
-        # Mandatory as it's the only way to escape Oracle's JavaScript check
-        self.__HEADERS = {"User-Agent": "Wget/1.20.3"}
-
-        # Mandatory as sometimes Oracle's HTML is broken
-        self.__DEFAULT_HTML_PARSER = "html5lib"
-
-        self.__CHUNK_SIZE = 2097152  # 2 MB
 
     def download_oracle_patch(
         self,
@@ -109,7 +108,7 @@ class OraclePatchDownloader:
             "https://updates.oracle.com/Orion/Services/download",
             auth=(self.username, self.password),
             allow_redirects=False,
-            headers=self.__HEADERS,
+            headers=_HEADERS,
         )
         self.__cookie_jar = login_response.cookies
 
@@ -132,7 +131,7 @@ class OraclePatchDownloader:
                     new_url,
                     auth=(self.username, self.password),
                     allow_redirects=False,
-                    headers=self.__HEADERS,
+                    headers=_HEADERS,
                     cookies=self.__cookie_jar,
                 )
                 self.__cookie_jar.update(login_response.cookies)
@@ -159,14 +158,14 @@ class OraclePatchDownloader:
         search_page_content = requests.get(
             "https://updates.oracle.com/Orion/SavedSearches/switch_to_simple",
             cookies=self.__cookie_jar,
-            headers=self.__HEADERS,
+            headers=_HEADERS,
             allow_redirects=True,
         )
         search_page_content_soup = BeautifulSoup(
             # We must use html5lib as Oracle's HTML is broken
             # due to the lack of </option> closing tags
             search_page_content.text,
-            self.__DEFAULT_HTML_PARSER,
+            _DEFAULT_HTML_PARSER,
         )
 
         plat_options_soup = search_page_content_soup.find(
@@ -203,12 +202,12 @@ class OraclePatchDownloader:
                     "patch_number": patch_number,
                     "plat_lang": plat_code,
                 },
-                headers=self.__HEADERS,
+                headers=_HEADERS,
                 cookies=self.__cookie_jar,
             )
-            resp_soup = BeautifulSoup(resp.text, self.__DEFAULT_HTML_PARSER)
+            resp_soup = BeautifulSoup(resp.text, _DEFAULT_HTML_PARSER)
             links = resp_soup.find_all(
-                "a", attrs={"href": re.compile("\.zip")}
+                "a", attrs={"href": re.compile(r"\.zip")}
             )
             for link in links:
                 self.__download_links.append(link["href"])
@@ -231,7 +230,7 @@ class OraclePatchDownloader:
         file_name = self.__extract_file_name_from_url(url)
 
         resp_dl = requests.get(
-            url, cookies=self.__cookie_jar, headers=self.__HEADERS, stream=True
+            url, cookies=self.__cookie_jar, headers=_HEADERS, stream=True
         )
         file_size = resp_dl.headers.get("content-length")
         if file_size is None:
@@ -244,7 +243,7 @@ class OraclePatchDownloader:
             target_dir + os.path.sep + file_name,
             "wb",
         ) as dl_file:
-            for chunk in resp_dl.iter_content(self.__CHUNK_SIZE):
+            for chunk in resp_dl.iter_content(_CHUNK_SIZE):
                 total_dl += len(chunk)
                 dl_file.write(chunk)
                 if file_size and progress_function:
