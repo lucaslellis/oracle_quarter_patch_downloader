@@ -14,6 +14,7 @@ import pathlib
 import re
 from http import HTTPStatus
 import sys
+import zipfile
 
 import requests
 from bs4 import BeautifulSoup
@@ -63,7 +64,7 @@ class OraclePatchDownloader:
             patch_number (str): an Oracle patch number
             platform_names (_type_): A list of platform names as defined by
                 Oracle.
-            target_dir (str): The target directory to download the file.
+            target_dir (str): The target directory where patches are downloaded
                 Defaults to ".".
             progress_function (function): a function that will be called with
                 the following parameters:
@@ -72,13 +73,9 @@ class OraclePatchDownloader:
                     - (int): total downloaded in bytes
                 Defaults to None.
         """
-        if self.__cookie_jar is None:
-            self.__logon_oracle_support()
-
-        if self.__platform_codes is None:
-            self.__build_list_platform_codes(platform_names)
-
-        pathlib.Path(target_dir).mkdir(parents=True, exist_ok=True)
+        self.__initialize_downloader(
+            platform_names, target_dir, progress_function
+        )
 
         if self.__download_links:
             self.__download_links.clear()
@@ -100,6 +97,33 @@ class OraclePatchDownloader:
                     "Please remove it manually and download it again.",
                     file=sys.stderr,
                 )
+
+    def __initialize_downloader(
+        self, platform_names, target_dir, progress_function
+    ):
+        """Initializes the downloader in case if it's the first call.
+
+        Args:
+            platform_names (_type_): A list of platform names as defined by
+                Oracle.
+            target_dir (str): The target directory where patches are downloaded
+                Defaults to ".".
+            progress_function (function): a function that will be called with
+                the following parameters:
+                    - (str): file name
+                    - (int): file size in bytes
+                    - (int): total downloaded in bytes
+                Defaults to None.
+        """
+        if self.__cookie_jar is None:
+            self.__logon_oracle_support()
+
+        self.__download_em_catalog(target_dir, progress_function)
+
+        if self.__platform_codes is None:
+            self.__build_list_platform_codes(platform_names, target_dir)
+
+        pathlib.Path(target_dir).mkdir(parents=True, exist_ok=True)
 
     def __logon_oracle_support(
         self,
@@ -152,39 +176,37 @@ class OraclePatchDownloader:
                 self.__cookie_jar.update(login_response.cookies)
                 break
 
-    def __build_list_platform_codes(self, platforms_names):
+    def __build_list_platform_codes(self, platforms_names, target_dir):
         """Returns a list containing download links for a given patch number
         and a list of platforms.
 
         Args:
-            cookie_jar (requests.RequestsCookieJar): a cookie jar containing
-                Oracle Support connection information
             platforms_names (list): List of platforms as defined by Oracle
+            target_dir (str): The target directory where patches are downloaded
 
         Returns:
             list: A list of platform codes
         """
 
-        self.__platform_codes = []
-        search_page_content = requests.get(
-            "https://updates.oracle.com/Orion/SavedSearches/switch_to_simple",
-            cookies=self.__cookie_jar,
-            headers=_HEADERS,
-            allow_redirects=True,
-        )
-        search_page_content_soup = BeautifulSoup(
-            # We must use html5lib as Oracle's HTML is broken
-            # due to the lack of </option> closing tags
-            search_page_content.text,
-            _DEFAULT_HTML_PARSER,
+        aru_platforms_file_path = (
+            target_dir
+            + os.path.sep
+            + "em_catalog"
+            + os.path.sep
+            + "aru_platforms.xml"
         )
 
-        plat_options_soup = search_page_content_soup.find(
-            "select", attrs={"name": "plat_lang"}
+        aru_platforms_file_content = pathlib.Path(
+            aru_platforms_file_path
+        ).read_text(encoding="utf-8")
+
+        aru_platforms_soup = BeautifulSoup(
+            aru_platforms_file_content, "html.parser"
         )
+
         self.__platform_codes = [
-            tag["value"]
-            for tag in plat_options_soup.children
+            tag["id"] + "P"
+            for tag in aru_platforms_soup.find_all("platform")
             if tag.text.strip() in platforms_names
         ]
 
@@ -230,7 +252,7 @@ class OraclePatchDownloader:
             url (str): the link to be downloaded
             cookie_jar (requests.RequestsCookieJar): a cookie jar containing
                 Oracle Support connection information
-            target_dir (str): The target directory to download the file.
+            target_dir (str): The target directory where patches are downloaded
             progress_function (function): a function that will be called with
                 the following parameters:
                     - (str): file name
@@ -267,7 +289,10 @@ class OraclePatchDownloader:
         downloaded_file_checksum = self.__calculate_file_checksum(
             target_dir, file_name
         )
-        if oracle_file_checksum != downloaded_file_checksum:
+        if (
+            oracle_file_checksum
+            and oracle_file_checksum != downloaded_file_checksum
+        ):
             raise ChecksumMismatch
 
     def __extract_file_name_from_url(self, url) -> str:
@@ -280,8 +305,8 @@ class OraclePatchDownloader:
             str: the file name as defined on the URL
         """
 
-        file_name = url.replace(
-            "https://updates.oracle.com/Orion/Download/process_form/", ""
+        file_name = re.sub(
+            r"https://[^.]+\.oracle\.com/([A-Za-z0-9-_]+/){0,}", "", url
         )
         file_name = re.sub("[?].+$", "", file_name)
 
@@ -291,7 +316,7 @@ class OraclePatchDownloader:
         """Check if a file exists and has the correct size.
 
         Args:
-            target_dir (str): The target directory to download the file.
+            target_dir (str): The target directory where patches are downloaded
             file_name (str): Name of the file being downloaded.
             file_size (_type_): Size in bytes of the original file.
         """
@@ -354,6 +379,39 @@ class OraclePatchDownloader:
             return file_hash.hexdigest().upper()
         else:
             return ""
+
+    def __download_em_catalog(self, target_dir, progress_function):
+        """Downloads em_catalog.zip from Oracle Support.
+
+        This zipped file contains xml files with the latest patches and
+        platform codes.
+
+        The zipped file will be extracted to a subdirectory of target_dir named
+        em_catalog.
+
+        Args:
+            target_dir (str): The target directory where patches are downloaded
+            progress_function (function): a function that will be called with
+                the following parameters:
+                    - (str): file name
+                    - (int): file size in bytes
+                    - (int): total downloaded in bytes
+        """
+        local_file_path = target_dir + os.path.sep + "em_catalog.zip"
+        local_directory_path = target_dir + os.path.sep + "em_catalog"
+
+        if not pathlib.Path(local_file_path).is_file():
+            self.__download_link(
+                "https://updates.oracle.com/download/em_catalog.zip",
+                target_dir,
+                progress_function,
+            )
+
+        pathlib.Path(target_dir + os.path.sep + "em_catalog").mkdir(
+            parents=True, exist_ok=True
+        )
+        with zipfile.ZipFile(local_file_path, "r") as cat_zip_file:
+            cat_zip_file.extractall(local_directory_path)
 
 
 class ChecksumMismatch(Exception):

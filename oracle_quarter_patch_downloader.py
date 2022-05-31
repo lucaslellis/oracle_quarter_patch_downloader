@@ -75,12 +75,12 @@ def main(argv=None):
         config_json["username"], config_json["password"]
     )
 
-    patch_dler.download_oracle_patch(
-        _AHF_PATCH_NUMBER,
-        config_json["platforms"],
-        target_dir=config_json["target_dir"],
-        progress_function=print_progress_function,
-    )
+    # patch_dler.download_oracle_patch(
+    #     _AHF_PATCH_NUMBER,
+    #     config_json["platforms"],
+    #     target_dir=config_json["target_dir"],
+    #     progress_function=print_progress_function,
+    # )
 
     patch_dler.download_oracle_patch(
         _OPATCH_PATCH_NUMBER,
