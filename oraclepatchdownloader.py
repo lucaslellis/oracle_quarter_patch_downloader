@@ -48,7 +48,7 @@ class OraclePatchDownloader:
         self.__platforms = None
         self.__download_links = None
         self.__product_id = None
-        self.__db_releases = None
+        self.__db_release_components = None
         self.__all_db_patches = None
         self.username = None
         self.password = None
@@ -140,8 +140,8 @@ class OraclePatchDownloader:
                 em_catalog_dir + os.path.sep + "aru_products.xml"
             )
 
-        if not self.__db_releases:
-            self.__build_list_database_releases(
+        if not self.__db_release_components:
+            self.__build_dict_database_release_components(
                 em_catalog_dir + os.path.sep + "components.xml"
             )
 
@@ -442,16 +442,20 @@ class OraclePatchDownloader:
                 self.__product_id = product.get("id")
                 break
 
-    def __build_list_database_releases(self, components_file_path):
-        """Builds a list of all database releases from the
+    def __build_dict_database_release_components(self, components_file_path):
+        """Builds a dict of all database release components from the
+        em_catalog/components.xml file.
+
+        Also builds a dict of all database related components from the
         em_catalog/components.xml file.
 
         Format:
-            db_release = {
+            db_releases = {
                 "cid": component.get("cid"),
-                "version": component.find("version").text,
-                "eol_extended": eol_extended,
-                "eol_premium": eol_premium,
+                {"version": component.find("version").text,
+                 "name": component.find("name").text
+                 "eol_extended": eol_extended,
+                 "eol_premium": eol_premium}
             }
 
         Args:
@@ -461,37 +465,38 @@ class OraclePatchDownloader:
 
         components_root = components_doc.getroot()
 
-        self.__db_releases = []
+        self.__db_release_components = {}
         for component in components_root.iterfind(
-            "./components/ctype[@name='RELEASE']/component[@product_cid='564']"
+            "./components/ctype[@name='RELEASE']/component"
         ):
-            lifecycle_tag = component.find("lifecycle")
-            eol_extended = None
-            eol_premium = None
-            if lifecycle_tag:
-                eol_extended_tag = lifecycle_tag.find(
-                    "./date[@type='eol_extended']"
-                )
-                if eol_extended_tag is not None:
-                    eol_extended = datetime.datetime.strptime(
-                        eol_extended_tag.text, r"%Y-%m-%d"
+            component_name = component.find("name").text
+            if component_name in ["Oracle Database", "RAC One Node", "Oracle Clusterware"]:
+                lifecycle_tag = component.find("lifecycle")
+                eol_extended = None
+                eol_premium = None
+                if lifecycle_tag:
+                    eol_extended_tag = lifecycle_tag.find(
+                        "./date[@type='eol_extended']"
                     )
+                    if eol_extended_tag is not None:
+                        eol_extended = datetime.datetime.strptime(
+                            eol_extended_tag.text, r"%Y-%m-%d"
+                        )
 
-                eol_premium_tag = lifecycle_tag.find(
-                    "./date[@type='eol_premium']"
-                )
-                if eol_premium_tag is not None:
-                    eol_premium = datetime.datetime.strptime(
-                        eol_premium_tag.text, r"%Y-%m-%d"
+                    eol_premium_tag = lifecycle_tag.find(
+                        "./date[@type='eol_premium']"
                     )
+                    if eol_premium_tag is not None:
+                        eol_premium = datetime.datetime.strptime(
+                            eol_premium_tag.text, r"%Y-%m-%d"
+                        )
 
-            db_release = {
-                "cid": component.get("cid"),
-                "version": component.find("version").text,
-                "eol_extended": eol_extended,
-                "eol_premium": eol_premium,
-            }
-            self.__db_releases.append(db_release)
+                self.__db_release_components[component.get("cid")] = {
+                    "version": component.find("version").text,
+                    "name": component_name,
+                    "eol_extended": eol_extended,
+                    "eol_premium": eol_premium,
+                }
 
     def __process_patch_recommendations_file(self, recommendations_file_path):
         """Processes the patch_recommendations.xml file.
@@ -503,7 +508,10 @@ class OraclePatchDownloader:
 
         path_counter = collections.Counter()
 
-        self.__all_db_patches = []
+        self.__all_db_patches = {}
+
+        # format - {(cid, platform): {patch_1, patch_2, ..., patch_n},}
+        recommended_patches = {}
         for evt, elem in xml.etree.ElementTree.iterparse(
             recommendations_file_path, events=("start", "end")
         ):
@@ -524,15 +532,80 @@ class OraclePatchDownloader:
                 path_counter["patches"] -= 1
                 elem.clear()
 
+            if evt == "start" and elem.tag == "standalone_recommendations":
+                path_counter["standalone_recommendations"] += 1
+
+            if (
+                evt == "end"
+                and path_counter["standalone_recommendations"] > 0
+                and elem.tag == "release"
+            ):
+                if elem.get("cid") in self.__db_release_components:
+                    component_id = elem.get("cid")
+                    for platform in elem:
+                        platform_id = platform.get("id")
+                        if platform_id in self.__platforms:
+                            recommended_patches[
+                                (component_id, platform_id)
+                            ] = set()
+                            for patch in platform:
+                                recommended_patches[
+                                    (component_id, platform_id)
+                                ].add(patch.get("uid"))
+                elem.clear()
+
+            if evt == "end" and elem.tag == "standalone_recommendations":
+                path_counter["standalone_recommendations"] -= 1
+                elem.clear()
+
+            if evt == "start" and elem.tag == "components_recommendations":
+                path_counter["components_recommendations"] += 1
+
+            if (
+                evt == "end"
+                and path_counter["components_recommendations"] > 0
+                and elem.tag == "release"
+            ):
+                if elem.get("cid") in self.__db_release_components:
+                    component_id = elem.get("cid")
+                    for platform in elem:
+                        platform_id = platform.get("id")
+                        if platform_id in self.__platforms:
+                            if (
+                                component_id,
+                                platform_id,
+                            ) not in recommended_patches:
+                                recommended_patches[
+                                    (component_id, platform_id)
+                                ] = set()
+                            for patch in platform:
+                                recommended_patches[
+                                    (component_id, platform_id)
+                                ].add(patch.get("uid"))
+                elem.clear()
+
+            if evt == "end" and elem.tag == "components_recommendations":
+                path_counter["components_recommendations"] -= 1
+                elem.clear()
+
+        for reco_patch_key, reco_patch_plat in recommended_patches:
+            print(self.__db_release_components[reco_patch_key]["name"] + "\t" + self.__db_release_components[reco_patch_key]["version"] + "\t" + self.__platforms[reco_patch_plat])
+            for patch_uid in recommended_patches[(reco_patch_key, reco_patch_plat)]:
+                try:
+                    print("\t" + self.__all_db_patches[patch_uid].description)
+                except KeyError:
+                    print("Patch not found - " + patch_uid)
+
     def __process_patch_tag(self, elem):
         """Processes the "patch" tags for the patch_recommendations.xml file.
 
         Args:
             elem (ElementTag): an ElementTag with tag == patch.
         """
-        product_id = elem.find(f"product[@id='{self.__product_id}']")
+        # product_id = elem.find(f"product[@id='{self.__product_id}']")
         platform_id = elem.find("platform").get("id")
-        if product_id is not None and platform_id in self.__platforms:
+        # if product_id is not None and platform_id in self.__platforms:
+        if platform_id in self.__platforms:
             patch_files = []
             for file in elem.iterfind("./files/file"):
                 download_url_tag = file.find("download_url")
@@ -544,15 +617,13 @@ class OraclePatchDownloader:
                     )
                 )
 
-            self.__all_db_patches.append(
-                OraclePatch(
-                    uid=elem.get("uid"),
-                    number=elem.find("name").text,
-                    description=elem.find("bug").find("abstract").text,
-                    platform_code=platform_id,
-                    release_name=elem.find("release").get("name"),
-                    files=patch_files,
-                )
+            self.__all_db_patches[elem.get("uid")] = OraclePatch(
+                uid=elem.get("uid"),
+                number=elem.find("name").text,
+                description=elem.find("bug").find("abstract").text,
+                platform_code=platform_id,
+                release_name=elem.find("release").get("name"),
+                files=patch_files,
             )
 
         elem.clear()
@@ -581,6 +652,12 @@ class OraclePatch:
             f'"{self.description}", "{self.files}")'
         )
         return repr_str
+
+    def __eq__(self, other):
+        return self.uid == other.uid
+
+    def __lt__(self, other):
+        return self.uid < other.uid
 
 
 class OraclePatchFile:
