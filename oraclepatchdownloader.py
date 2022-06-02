@@ -6,15 +6,20 @@ Requires:
     - requests
     - beautifulsoup4
     - html5lib
+
+TODO Fix recommended list building - work through all components and standalone recommendations
 """
 
+import collections
+import datetime
 import hashlib
 import os
 import pathlib
 import re
-from http import HTTPStatus
 import sys
+import xml.etree
 import zipfile
+from http import HTTPStatus
 
 import requests
 from bs4 import BeautifulSoup
@@ -34,36 +39,33 @@ class OraclePatchDownloader:
     Author: Lucas Pimentel Lellis
     """
 
-    def __init__(self, username, password):
+    def __init__(self):
         """Builds an Oracle Patch downloader.
 
         Creates an empty cookie jar to store logon information.
-
-        Args:
-            username (str): Oracle Support Username
-            password (str): Oracle Support Password
         """
         self.__cookie_jar = None
-        self.__platform_codes = None
+        self.__platforms = None
         self.__download_links = None
-        self.username = username
-        self.password = password
+        self.__product_id = None
+        self.__db_releases = None
+        self.__all_db_patches = None
+        self.username = None
+        self.password = None
 
     def download_oracle_patch(
         self,
         patch_number,
-        platform_names,
         target_dir=".",
         progress_function=None,
     ):
-        """Downloads an Oracle Patch given a patch number and a list of
-        platforms, a target directory (optional) and a function to display
+        """Downloads an Oracle Patch for the downloader platforms
+        given a patch number,
+        a target directory (optional) and a function to display
         download progress (optional).
 
         Args:
             patch_number (str): an Oracle patch number
-            platform_names (_type_): A list of platform names as defined by
-                Oracle.
             target_dir (str): The target directory where patches are downloaded
                 Defaults to ".".
             progress_function (function): a function that will be called with
@@ -73,14 +75,16 @@ class OraclePatchDownloader:
                     - (int): total downloaded in bytes
                 Defaults to None.
         """
-        self.__initialize_downloader(
-            platform_names, target_dir, progress_function
-        )
+        if not self.__cookie_jar:
+            print("Please call initialize_downloader() first", file=sys.stderr)
+            return
 
         if self.__download_links:
             self.__download_links.clear()
 
         self.__build_list_download_links(patch_number)
+
+        pathlib.Path(target_dir).mkdir(parents=True, exist_ok=True)
 
         for dl_link in self.__download_links:
             try:
@@ -98,32 +102,52 @@ class OraclePatchDownloader:
                     file=sys.stderr,
                 )
 
-    def __initialize_downloader(
-        self, platform_names, target_dir, progress_function
+    def initialize_downloader(
+        self, platform_names, target_dir, username, password
     ):
-        """Initializes the downloader in case if it's the first call.
+        """Initializes the downloader.
+
+        Performs the logon to Oracle Support and downloads the catalog files.
 
         Args:
             platform_names (_type_): A list of platform names as defined by
                 Oracle.
             target_dir (str): The target directory where patches are downloaded
                 Defaults to ".".
-            progress_function (function): a function that will be called with
-                the following parameters:
-                    - (str): file name
-                    - (int): file size in bytes
-                    - (int): total downloaded in bytes
-                Defaults to None.
+            username (str): Oracle Support Username
+            password (str): Oracle Support Password
         """
+        self.username = username
+        self.password = password
+
         if self.__cookie_jar is None:
             self.__logon_oracle_support()
 
-        self.__download_em_catalog(target_dir, progress_function)
-
-        if self.__platform_codes is None:
-            self.__build_list_platform_codes(platform_names, target_dir)
-
         pathlib.Path(target_dir).mkdir(parents=True, exist_ok=True)
+
+        self.__download_em_catalog(target_dir)
+
+        em_catalog_dir = target_dir + os.path.sep + "em_catalog"
+
+        if self.__platforms is None:
+            self.__build_dict_platform_codes(
+                platform_names,
+                em_catalog_dir + os.path.sep + "aru_platforms.xml",
+            )
+
+        if not self.__product_id:
+            self.__extract_product_id(
+                em_catalog_dir + os.path.sep + "aru_products.xml"
+            )
+
+        if not self.__db_releases:
+            self.__build_list_database_releases(
+                em_catalog_dir + os.path.sep + "components.xml"
+            )
+
+        self.__process_patch_recommendations_file(
+            em_catalog_dir + os.path.sep + "patch_recommendations.xml"
+        )
 
     def __logon_oracle_support(
         self,
@@ -176,39 +200,32 @@ class OraclePatchDownloader:
                 self.__cookie_jar.update(login_response.cookies)
                 break
 
-    def __build_list_platform_codes(self, platforms_names, target_dir):
-        """Returns a list containing download links for a given patch number
-        and a list of platforms.
+    def __build_dict_platform_codes(
+        self, platforms_names, platform_codes_file_path
+    ):
+        """Returns a dictionary of Oracle platforms codes
+        and names, filtered by the input platform names.
 
         Args:
-            platforms_names (list): List of platforms as defined by Oracle
-            target_dir (str): The target directory where patches are downloaded
+            platforms_names (list): List of platforms names as defined by
+            Oracle.
+            platform_codes_file_path (str): Complete path of the
+            aru_platforms.xml file.
 
         Returns:
-            list: A list of platform codes
+            dict: A dictionary of platform codes and names.
         """
 
-        aru_platforms_file_path = (
-            target_dir
-            + os.path.sep
-            + "em_catalog"
-            + os.path.sep
-            + "aru_platforms.xml"
+        aru_platforms_doc = xml.etree.ElementTree.parse(
+            platform_codes_file_path
         )
+        aru_platforms_doc_root = aru_platforms_doc.getroot()
 
-        aru_platforms_file_content = pathlib.Path(
-            aru_platforms_file_path
-        ).read_text(encoding="utf-8")
-
-        aru_platforms_soup = BeautifulSoup(
-            aru_platforms_file_content, "html.parser"
-        )
-
-        self.__platform_codes = [
-            tag["id"] + "P"
-            for tag in aru_platforms_soup.find_all("platform")
+        self.__platforms = {
+            tag.get("id"): tag.text.strip()
+            for tag in aru_platforms_doc_root.iterfind("./platform")
             if tag.text.strip() in platforms_names
-        ]
+        }
 
     def __build_list_download_links(self, patch_number):
         """Returns a list containing download links for a given patch number
@@ -227,13 +244,13 @@ class OraclePatchDownloader:
 
         self.__download_links = []
 
-        for plat_code in self.__platform_codes:
+        for platform in self.__platforms:
             resp = requests.get(
                 "https://updates.oracle.com/Orion/SimpleSearch/process_form",
                 params={
                     "search_type": "patch",
                     "patch_number": patch_number,
-                    "plat_lang": plat_code,
+                    "plat_lang": platform + "P",
                 },
                 headers=_HEADERS,
                 cookies=self.__cookie_jar,
@@ -380,7 +397,7 @@ class OraclePatchDownloader:
         else:
             return ""
 
-    def __download_em_catalog(self, target_dir, progress_function):
+    def __download_em_catalog(self, target_dir):
         """Downloads em_catalog.zip from Oracle Support.
 
         This zipped file contains xml files with the latest patches and
@@ -390,12 +407,8 @@ class OraclePatchDownloader:
         em_catalog.
 
         Args:
-            target_dir (str): The target directory where patches are downloaded
-            progress_function (function): a function that will be called with
-                the following parameters:
-                    - (str): file name
-                    - (int): file size in bytes
-                    - (int): total downloaded in bytes
+            target_dir (str): The target directory where patches are
+            downloaded.
         """
         local_file_path = target_dir + os.path.sep + "em_catalog.zip"
         local_directory_path = target_dir + os.path.sep + "em_catalog"
@@ -404,7 +417,7 @@ class OraclePatchDownloader:
             self.__download_link(
                 "https://updates.oracle.com/download/em_catalog.zip",
                 target_dir,
-                progress_function,
+                None,
             )
 
         pathlib.Path(target_dir + os.path.sep + "em_catalog").mkdir(
@@ -412,6 +425,181 @@ class OraclePatchDownloader:
         )
         with zipfile.ZipFile(local_file_path, "r") as cat_zip_file:
             cat_zip_file.extractall(local_directory_path)
+
+    def __extract_product_id(self, products_file_path):
+        """Extracts the product id from the em_catalog/aru_products.xml.
+
+        Args:
+            products_file_path (str): Complete path of the aru_products.xml
+            file.
+        """
+
+        aru_products_doc = xml.etree.ElementTree.parse(products_file_path)
+        aru_platforms_doc_root = aru_products_doc.getroot()
+
+        for product in aru_platforms_doc_root.iterfind("./product"):
+            if product.text == "Oracle Database":
+                self.__product_id = product.get("id")
+                break
+
+    def __build_list_database_releases(self, components_file_path):
+        """Builds a list of all database releases from the
+        em_catalog/components.xml file.
+
+        Format:
+            db_release = {
+                "cid": component.get("cid"),
+                "version": component.find("version").text,
+                "eol_extended": eol_extended,
+                "eol_premium": eol_premium,
+            }
+
+        Args:
+            components_file_path (str): Complete path of components.xml file.
+        """
+        components_doc = xml.etree.ElementTree.parse(components_file_path)
+
+        components_root = components_doc.getroot()
+
+        self.__db_releases = []
+        for component in components_root.iterfind(
+            "./components/ctype[@name='RELEASE']/component[@product_cid='564']"
+        ):
+            lifecycle_tag = component.find("lifecycle")
+            eol_extended = None
+            eol_premium = None
+            if lifecycle_tag:
+                eol_extended_tag = lifecycle_tag.find(
+                    "./date[@type='eol_extended']"
+                )
+                if eol_extended_tag is not None:
+                    eol_extended = datetime.datetime.strptime(
+                        eol_extended_tag.text, r"%Y-%m-%d"
+                    )
+
+                eol_premium_tag = lifecycle_tag.find(
+                    "./date[@type='eol_premium']"
+                )
+                if eol_premium_tag is not None:
+                    eol_premium = datetime.datetime.strptime(
+                        eol_premium_tag.text, r"%Y-%m-%d"
+                    )
+
+            db_release = {
+                "cid": component.get("cid"),
+                "version": component.find("version").text,
+                "eol_extended": eol_extended,
+                "eol_premium": eol_premium,
+            }
+            self.__db_releases.append(db_release)
+
+    def __process_patch_recommendations_file(self, recommendations_file_path):
+        """Processes the patch_recommendations.xml file.
+
+        Args:
+            recommendations_file_path (str): Complete path of
+            patch_recommendations.xml file.
+        """
+
+        path_counter = collections.Counter()
+
+        self.__all_db_patches = []
+        for evt, elem in xml.etree.ElementTree.iterparse(
+            recommendations_file_path, events=("start", "end")
+        ):
+            if evt == "start" and elem.tag == "patches":
+                path_counter["patches"] += 1
+
+            if evt == "start" and elem.tag == "fixed_bugs":
+                elem.clear()
+
+            if (
+                evt == "end"
+                and path_counter["patches"] > 0
+                and elem.tag == "patch"
+            ):
+                self.__process_patch_tag(elem)
+
+            if evt == "end" and elem.tag == "patches":
+                path_counter["patches"] -= 1
+                elem.clear()
+
+    def __process_patch_tag(self, elem):
+        """Processes the "patch" tags for the patch_recommendations.xml file.
+
+        Args:
+            elem (ElementTag): an ElementTag with tag == patch.
+        """
+        product_id = elem.find(f"product[@id='{self.__product_id}']")
+        platform_id = elem.find("platform").get("id")
+        if product_id is not None and platform_id in self.__platforms:
+            patch_files = []
+            for file in elem.iterfind("./files/file"):
+                download_url_tag = file.find("download_url")
+                patch_files.append(
+                    OraclePatchFile(
+                        download_url_tag.get("host") + download_url_tag.text,
+                        sha256sum=file.find("./digest[@type='SHA-256']").text,
+                        name=file.find("name").text,
+                    )
+                )
+
+            self.__all_db_patches.append(
+                OraclePatch(
+                    uid=elem.get("uid"),
+                    number=elem.find("name").text,
+                    description=elem.find("bug").find("abstract").text,
+                    platform_code=platform_id,
+                    release_name=elem.find("release").get("name"),
+                    files=patch_files,
+                )
+            )
+
+        elem.clear()
+
+
+class OraclePatch:
+    """Structure grouping attributes of an Oracle Patch."""
+
+    def __init__(
+        self, uid, number, platform_code, release_name, description, files
+    ):
+        self.uid = uid
+        self.number = number
+        self.platform_code = platform_code
+        self.release_name = release_name
+        self.description = description
+        self.files = files
+
+    def __str__(self):
+        return str(self.__dict__)
+
+    def __repr__(self):
+        repr_str = (
+            f'OraclePatch("{self.uid}", "{self.number}", '
+            f'"{self.platform_code}", "{self.release_name}", '
+            f'"{self.description}", "{self.files}")'
+        )
+        return repr_str
+
+
+class OraclePatchFile:
+    """Structure grouping attributes of an Oracle Patch file."""
+
+    def __init__(self, download_url, sha256sum, name):
+        self.download_url = download_url
+        self.sha256sum = sha256sum
+        self.name = name
+
+    def __str__(self):
+        return str(self.__dict__)
+
+    def __repr__(self):
+        repr_str = (
+            f'OraclePatchFile("{self.download_url}",'
+            f'"{self.sha256sum}", "{self.name})'
+        )
+        return repr_str
 
 
 class ChecksumMismatch(Exception):

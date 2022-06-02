@@ -62,8 +62,7 @@ def main(argv=None):
 
     config_json = []
     with open(
-        os.path.join(sys.path[0], _CONFIG_FILE),
-        encoding="utf-8"
+        os.path.join(sys.path[0], _CONFIG_FILE), encoding="utf-8"
     ) as config_file:
         config_json = json.load(config_file)
 
@@ -71,21 +70,24 @@ def main(argv=None):
         print("Invalid config file", file=sys.stderr)
         return 1
 
-    patch_dler = OraclePatchDownloader(
-        config_json["username"], config_json["password"]
+    patch_dler = OraclePatchDownloader()
+
+    patch_dler.initialize_downloader(
+        config_json["platforms"],
+        config_json["target_dir"],
+        config_json["username"],
+        config_json["password"],
     )
 
-    # patch_dler.download_oracle_patch(
-    #     _AHF_PATCH_NUMBER,
-    #     config_json["platforms"],
-    #     target_dir=config_json["target_dir"],
-    #     progress_function=print_progress_function,
-    # )
+    patch_dler.download_oracle_patch(
+        _AHF_PATCH_NUMBER,
+        config_json["target_dir"] + os.path.sep + "ahf",
+        print_progress_function,
+    )
 
     patch_dler.download_oracle_patch(
         _OPATCH_PATCH_NUMBER,
-        config_json["platforms"],
-        target_dir=config_json["target_dir"],
+        target_dir=config_json["target_dir"] + os.path.sep + "opatch",
         progress_function=print_progress_function,
     )
 
