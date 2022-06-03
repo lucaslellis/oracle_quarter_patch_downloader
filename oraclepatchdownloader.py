@@ -306,7 +306,8 @@ class OraclePatchDownloader:
         ):
             raise ChecksumMismatch
 
-    def __extract_file_name_from_url(self, url) -> str:
+    @staticmethod
+    def __extract_file_name_from_url(url) -> str:
         """Extracts the file name from url.
 
         Args:
@@ -323,7 +324,8 @@ class OraclePatchDownloader:
 
         return file_name
 
-    def __check_file_exists(self, target_dir, file_name, file_size) -> bool:
+    @staticmethod
+    def __check_file_exists(target_dir, file_name, file_size) -> bool:
         """Check if a file exists and has the correct size.
 
         Args:
@@ -368,7 +370,8 @@ class OraclePatchDownloader:
 
         return checksum.upper()
 
-    def __calculate_file_checksum(self, target_dir, file_name) -> str:
+    @staticmethod
+    def __calculate_file_checksum(target_dir, file_name) -> str:
         """Calculates the SHA-256 checksum of the downloaded file.
 
         Args:
