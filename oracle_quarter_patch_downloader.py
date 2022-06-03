@@ -91,6 +91,13 @@ def main(argv=None):
         progress_function=print_progress_function,
     )
 
+    patch_dler.download_oracle_quarter_patches(
+        config_json["target_dir"] + os.path.sep + "quarter_patches",
+        [r"^(8|9|10)\..+", r"^11\.1\..+", r"^11\.2\.0\.[^4]\..+"],
+        [r".*EXADATA.*"],
+        print_progress_function
+    )
+
     return 0
 
 

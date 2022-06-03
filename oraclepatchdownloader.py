@@ -12,6 +12,7 @@ Requires:
 import collections
 import datetime
 import hashlib
+from locale import normalize
 import os
 import pathlib
 import re
@@ -31,6 +32,8 @@ _DEFAULT_HTML_PARSER = "html5lib"
 
 _CHUNK_SIZE = 2097152  # 2 MB
 
+_REQUEST_TIMEOUT = 30  # seconds
+
 
 class OraclePatchDownloader:
     """Class that enables downloading Oracle patches
@@ -48,6 +51,7 @@ class OraclePatchDownloader:
         self.__download_links = None
         self.__db_release_components = None
         self.__all_db_patches = None
+        self.__recommended_db_patches = None
         self.username = None
         self.password = None
 
@@ -103,6 +107,97 @@ class OraclePatchDownloader:
                     file=sys.stderr,
                 )
 
+    def download_oracle_quarter_patches(
+        self,
+        target_dir,
+        ignored_releases,
+        ignored_description_words,
+        progress_function,
+    ):
+        """Downloads all Oracle DB and GI recommended patches for the
+        current quarter.
+
+        target_dir (str): The target directory where patches are downloaded.
+        Defaults to ".".
+        ignored_releases (list): A list containing regexes of versions to be
+        ignored for downloads.
+        ignored_description_words (list): A list containing regexes of words to
+        be matched for descriptions of patches that must not be downloaded.
+        progress_function (function): a function that will be called with
+        the following parameters:
+            - (str): file name
+            - (int): file size in bytes
+            - (int): total downloaded in bytes
+        Defaults to None.
+        """
+        desc_file_path_counter = collections.Counter()
+        for (
+            reco_patch_comp_id,
+            reco_patch_plat,
+        ) in self.__recommended_db_patches:
+            normalized_plat_dir_name = self.__normalize_directory_name(
+                self.__platforms[reco_patch_plat]
+            )
+            version = self.__db_release_components[reco_patch_comp_id][
+                "version"
+            ]
+            if self.__is_expression_ignored(ignored_releases, version):
+                continue
+
+            patch_dest_path = (
+                target_dir
+                + os.path.sep
+                + version
+                + os.path.sep
+                + normalized_plat_dir_name
+            )
+            pathlib.Path(patch_dest_path).mkdir(parents=True, exist_ok=True)
+            desc_file_path = patch_dest_path + os.path.sep + "description.txt"
+
+            if desc_file_path_counter[desc_file_path] > 0:
+                desc_file_open_mode = "at"
+            else:
+                desc_file_open_mode = "wt"
+
+            with open(
+                desc_file_path,
+                encoding="utf-8",
+                mode=desc_file_open_mode
+            ) as desc_file:
+                for patch_uid in self.__recommended_db_patches[
+                    (reco_patch_comp_id, reco_patch_plat)
+                ]:
+                    if self.__is_expression_ignored(
+                        ignored_description_words,
+                        self.__all_db_patches[patch_uid].description,
+                    ):
+                        continue
+                    patch = self.__all_db_patches[patch_uid]
+                    print("\t" + patch.description)
+                    for file in patch.files:
+                        print(f"{file.name} - {patch.description}", file=desc_file)
+
+                desc_file_path_counter[desc_file_path] += 1
+
+
+    @staticmethod
+    def __is_expression_ignored(ignored_expressions, expression) -> bool:
+        """Checks if a word is on the list of ignored.
+
+        Args:
+            ignored_expressions (list): List of ignored expressions.
+            expression (str): expression to be tested.
+
+        Returns:
+            bool: True if the expression is ignored.
+        """
+        for ignored_release_regex in ignored_expressions:
+            match = re.search(ignored_release_regex, expression)
+            if match is not None:
+                return True
+
+        return False
+
     def initialize_downloader(
         self, platform_names, target_dir, username, password
     ):
@@ -141,9 +236,10 @@ class OraclePatchDownloader:
                 em_catalog_dir + os.path.sep + "components.xml"
             )
 
-        self.__process_patch_recommendations_file(
-            em_catalog_dir + os.path.sep + "patch_recommendations.xml"
-        )
+        if not self.__recommended_db_patches:
+            self.__process_patch_recommendations_file(
+                em_catalog_dir + os.path.sep + "patch_recommendations.xml"
+            )
 
     def __logon_oracle_support(
         self,
@@ -164,6 +260,7 @@ class OraclePatchDownloader:
             auth=(self.username, self.password),
             allow_redirects=False,
             headers=_HEADERS,
+            timeout=_REQUEST_TIMEOUT,
         )
         self.__cookie_jar = login_response.cookies
 
@@ -188,6 +285,7 @@ class OraclePatchDownloader:
                     allow_redirects=False,
                     headers=_HEADERS,
                     cookies=self.__cookie_jar,
+                    timeout=_REQUEST_TIMEOUT,
                 )
                 self.__cookie_jar.update(login_response.cookies)
                 status_code = login_response.status_code
@@ -250,6 +348,7 @@ class OraclePatchDownloader:
                 },
                 headers=_HEADERS,
                 cookies=self.__cookie_jar,
+                timeout=_REQUEST_TIMEOUT,
             )
             resp_soup = BeautifulSoup(resp.text, _DEFAULT_HTML_PARSER)
             links = resp_soup.find_all(
@@ -279,7 +378,11 @@ class OraclePatchDownloader:
         file_name = self.__extract_file_name_from_url(url)
 
         resp_dl = requests.get(
-            url, cookies=self.__cookie_jar, headers=_HEADERS, stream=True
+            url,
+            cookies=self.__cookie_jar,
+            headers=_HEADERS,
+            stream=True,
+            timeout=_REQUEST_TIMEOUT,
         )
         file_size = resp_dl.headers.get("content-length")
         if file_size is None:
@@ -364,6 +467,7 @@ class OraclePatchDownloader:
                 params={"aru": aru},
                 cookies=self.__cookie_jar,
                 headers=_HEADERS,
+                timeout=_REQUEST_TIMEOUT,
             )
             if resp_chksum.text:
                 sha256_matches = re.search(
@@ -501,35 +605,19 @@ class OraclePatchDownloader:
         self.__all_db_patches = {}
 
         # format - {(cid, platform): {patch_1, patch_2, ..., patch_n},}
-        recommended_patches = {}
+        self.__recommended_db_patches = {}
         for evt, elem in xml.etree.ElementTree.iterparse(
             recommendations_file_path, events=("start", "end")
         ):
             self.__process_patches_tag(path_counter, evt, elem)
 
             self.__process_standalone_recommendations_tag(
-                path_counter, recommended_patches, evt, elem
+                path_counter, self.__recommended_db_patches, evt, elem
             )
 
             self.__process_components_recommendations_tag(
-                path_counter, recommended_patches, evt, elem
+                path_counter, self.__recommended_db_patches, evt, elem
             )
-
-        for reco_patch_key, reco_patch_plat in recommended_patches:
-            print(
-                self.__db_release_components[reco_patch_key]["name"]
-                + "\t"
-                + self.__db_release_components[reco_patch_key]["version"]
-                + "\t"
-                + self.__platforms[reco_patch_plat]
-            )
-            for patch_uid in recommended_patches[
-                (reco_patch_key, reco_patch_plat)
-            ]:
-                try:
-                    print("\t" + self.__all_db_patches[patch_uid].description)
-                except KeyError:
-                    print("Patch not found - " + patch_uid)
 
     def __process_patches_tag(self, path_counter, evt, elem):
         """Processes the "patches" tags for the patch_recommendations.xml file.
@@ -668,6 +756,23 @@ class OraclePatchDownloader:
         if evt == "end" and elem.tag == "components_recommendations":
             path_counter["components_recommendations"] -= 1
             elem.clear()
+
+    @staticmethod
+    def __normalize_directory_name(orig_name) -> str:
+        """Replaces undesirable characters from a planned directory name
+        with underscore characters.
+
+        Args:
+            orig_name (str): The original directory name.
+
+        Returns:
+            str: the normalized name.
+        """
+        normalized_name = re.sub("[^a-zA-Z0-9_.-]+", "_", orig_name)
+        normalized_name = re.sub("_$", "", normalized_name)
+        normalized_name = re.sub("^_", "", normalized_name)
+
+        return normalized_name
 
 
 class OraclePatch:
