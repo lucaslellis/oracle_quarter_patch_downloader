@@ -87,7 +87,9 @@ class OraclePatchDownloader:
         for dl_link in self.__download_links:
             try:
                 oracle_checksum = self.__obtain_sha256_checksum_oracle(dl_link)
-                self.__download_link(dl_link, oracle_checksum, target_dir, progress_function)
+                self.__download_link(
+                    dl_link, oracle_checksum, target_dir, progress_function
+                )
             except ChecksumMismatch:
                 local_filename = (
                     target_dir
@@ -256,7 +258,9 @@ class OraclePatchDownloader:
             for link in links:
                 self.__download_links.append(link["href"])
 
-    def __download_link(self, url, oracle_file_checksum, target_dir, progress_function):
+    def __download_link(
+        self, url, oracle_file_checksum, target_dir, progress_function
+    ):
         """Downloads to the target_dir the file specified by the url.
 
         Args:
@@ -501,54 +505,15 @@ class OraclePatchDownloader:
         for evt, elem in xml.etree.ElementTree.iterparse(
             recommendations_file_path, events=("start", "end")
         ):
-            if evt == "start" and elem.tag == "patches":
-                path_counter["patches"] += 1
+            self.__process_patches_tag(path_counter, evt, elem)
 
-            if evt == "start" and elem.tag == "fixed_bugs":
-                elem.clear()
+            self.__process_standalone_recommendations_tag(
+                path_counter, recommended_patches, evt, elem
+            )
 
-            if (
-                evt == "end"
-                and path_counter["patches"] > 0
-                and elem.tag == "patch"
-            ):
-                self.__process_patch_tag(elem)
-
-            if evt == "end" and elem.tag == "patches":
-                path_counter["patches"] -= 1
-                elem.clear()
-
-            if evt == "start" and elem.tag == "standalone_recommendations":
-                path_counter["standalone_recommendations"] += 1
-
-            if (
-                evt == "end"
-                and path_counter["standalone_recommendations"] > 0
-                and elem.tag == "release"
-            ):
-                self.__process_standalone_recommendations_tag(
-                    recommended_patches, elem
-                )
-
-            if evt == "end" and elem.tag == "standalone_recommendations":
-                path_counter["standalone_recommendations"] -= 1
-                elem.clear()
-
-            if evt == "start" and elem.tag == "components_recommendations":
-                path_counter["components_recommendations"] += 1
-
-            if (
-                evt == "end"
-                and path_counter["components_recommendations"] > 0
-                and elem.tag == "release"
-            ):
-                self.process_components_recommendations_tag(
-                    recommended_patches, elem
-                )
-
-            if evt == "end" and elem.tag == "components_recommendations":
-                path_counter["components_recommendations"] -= 1
-                elem.clear()
+            self.__process_components_recommendations_tag(
+                path_counter, recommended_patches, evt, elem
+            )
 
         for reco_patch_key, reco_patch_plat in recommended_patches:
             print(
@@ -566,85 +531,143 @@ class OraclePatchDownloader:
                 except KeyError:
                     print("Patch not found - " + patch_uid)
 
-    def process_components_recommendations_tag(
-        self, recommended_patches, elem
-    ):
-        """Processes the "patch" tags for the patch_recommendations.xml file.
+    def __process_patches_tag(self, path_counter, evt, elem):
+        """Processes the "patches" tags for the patch_recommendations.xml file.
 
         Args:
             elem (ElementTag): an ElementTag with tag == patch.
-            recommended_patches (set): an existing set of recommended patches
-            that will receive the recommendations for the components section.
+            path_counter (Counter): a counter collection to keep track of the
+            parent section.
         """
-        if elem.get("cid") in self.__db_release_components:
-            component_id = elem.get("cid")
-            for platform in elem:
-                platform_id = platform.get("id")
-                if platform_id in self.__platforms:
-                    if (
-                        component_id,
-                        platform_id,
-                    ) not in recommended_patches:
-                        recommended_patches[
-                            (component_id, platform_id)
-                        ] = set()
-                    for patch in platform:
-                        recommended_patches[(component_id, platform_id)].add(
-                            patch.get("uid")
+        if evt == "start" and elem.tag == "patches":
+            path_counter["patches"] += 1
+
+        if evt == "start" and elem.tag == "fixed_bugs":
+            elem.clear()
+
+        if (
+            evt == "end"
+            and path_counter["patches"] > 0
+            and elem.tag == "patch"
+        ):
+            platform_id = elem.find("platform").get("id")
+            if platform_id in self.__platforms:
+                patch_files = []
+                for file in elem.iterfind("./files/file"):
+                    download_url_tag = file.find("download_url")
+                    patch_files.append(
+                        OraclePatchFile(
+                            download_url_tag.get("host")
+                            + download_url_tag.text,
+                            sha256sum=file.find(
+                                "./digest[@type='SHA-256']"
+                            ).text,
+                            name=file.find("name").text,
                         )
-        elem.clear()
-
-    def __process_standalone_recommendations_tag(
-        self, recommended_patches, elem
-    ):
-        """Processes the "patch" tags for the patch_recommendations.xml file.
-
-        Args:
-            elem (ElementTag): an ElementTag with tag == patch.
-            recommended_patches (set): an existing set of recommended patches
-            that will receive the recommendations for the standalone section.
-        """
-        if elem.get("cid") in self.__db_release_components:
-            component_id = elem.get("cid")
-            for platform in elem:
-                platform_id = platform.get("id")
-                if platform_id in self.__platforms:
-                    recommended_patches[(component_id, platform_id)] = set()
-                    for patch in platform:
-                        recommended_patches[(component_id, platform_id)].add(
-                            patch.get("uid")
-                        )
-        elem.clear()
-
-    def __process_patch_tag(self, elem):
-        """Processes the "patch" tags for the patch_recommendations.xml file.
-
-        Args:
-            elem (ElementTag): an ElementTag with tag == patch.
-        """
-        platform_id = elem.find("platform").get("id")
-        if platform_id in self.__platforms:
-            patch_files = []
-            for file in elem.iterfind("./files/file"):
-                download_url_tag = file.find("download_url")
-                patch_files.append(
-                    OraclePatchFile(
-                        download_url_tag.get("host") + download_url_tag.text,
-                        sha256sum=file.find("./digest[@type='SHA-256']").text,
-                        name=file.find("name").text,
                     )
+
+                self.__all_db_patches[elem.get("uid")] = OraclePatch(
+                    uid=elem.get("uid"),
+                    number=elem.find("name").text,
+                    description=elem.find("bug").find("abstract").text,
+                    platform_code=platform_id,
+                    release_name=elem.find("release").get("name"),
+                    files=patch_files,
                 )
 
-            self.__all_db_patches[elem.get("uid")] = OraclePatch(
-                uid=elem.get("uid"),
-                number=elem.find("name").text,
-                description=elem.find("bug").find("abstract").text,
-                platform_code=platform_id,
-                release_name=elem.find("release").get("name"),
-                files=patch_files,
-            )
+            elem.clear()
 
-        elem.clear()
+        if evt == "end" and elem.tag == "patches":
+            path_counter["patches"] -= 1
+            elem.clear()
+
+    def __process_standalone_recommendations_tag(
+        self, path_counter, recommended_patches, evt, elem
+    ):
+        """Processes the "standalone_recommendations" tags for the
+        patch_recommendations.xml file.
+
+        Args:
+            path_counter (Counter): a counter collection to keep track of the
+            parent section.
+            recommended_patches (set): an existing set of recommended patches
+            that will receive the recommendations for the standalone section.
+            evt (str): which event is being processed at the moment.
+            elem (ElementTag): an ElementTag with tag == patch.
+        """
+        if evt == "start" and elem.tag == "standalone_recommendations":
+            path_counter["standalone_recommendations"] += 1
+
+        if (
+            evt == "end"
+            and path_counter["standalone_recommendations"] > 0
+            and elem.tag == "release"
+        ):
+            if elem.get("cid") in self.__db_release_components:
+                component_id = elem.get("cid")
+                for platform in elem:
+                    platform_id = platform.get("id")
+                    if platform_id in self.__platforms:
+                        if (
+                            component_id,
+                            platform_id,
+                        ) not in recommended_patches:
+                            recommended_patches[
+                                (component_id, platform_id)
+                            ] = set()
+                        for patch in platform:
+                            recommended_patches[
+                                (component_id, platform_id)
+                            ].add(patch.get("uid"))
+            elem.clear()
+
+        if evt == "end" and elem.tag == "standalone_recommendations":
+            path_counter["standalone_recommendations"] -= 1
+            elem.clear()
+
+    def __process_components_recommendations_tag(
+        self, path_counter, recommended_patches, evt, elem
+    ):
+        """Processes the "components_recommendations" tags for the
+        patch_recommendations.xml file.
+
+        Args:
+            path_counter (Counter): a counter collection to keep track of the
+            parent section.
+            recommended_patches (set): an existing set of recommended patches
+            that will receive the recommendations for the standalone section.
+            evt (str): which event is being processed at the moment.
+            elem (ElementTag): an ElementTag with tag == patch.
+        """
+        if evt == "start" and elem.tag == "components_recommendations":
+            path_counter["components_recommendations"] += 1
+
+        if (
+            evt == "end"
+            and path_counter["components_recommendations"] > 0
+            and elem.tag == "release"
+        ):
+            if elem.get("cid") in self.__db_release_components:
+                component_id = elem.get("cid")
+                for platform in elem:
+                    platform_id = platform.get("id")
+                    if platform_id in self.__platforms:
+                        if (
+                            component_id,
+                            platform_id,
+                        ) not in recommended_patches:
+                            recommended_patches[
+                                (component_id, platform_id)
+                            ] = set()
+                        for patch in platform:
+                            recommended_patches[
+                                (component_id, platform_id)
+                            ].add(patch.get("uid"))
+            elem.clear()
+
+        if evt == "end" and elem.tag == "components_recommendations":
+            path_counter["components_recommendations"] -= 1
+            elem.clear()
 
 
 class OraclePatch:
