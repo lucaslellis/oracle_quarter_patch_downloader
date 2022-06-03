@@ -7,7 +7,6 @@ Requires:
     - beautifulsoup4
     - html5lib
 
-TODO Fix recommended list building - work through all components and standalone recommendations
 """
 
 import collections
@@ -47,7 +46,6 @@ class OraclePatchDownloader:
         self.__cookie_jar = None
         self.__platforms = None
         self.__download_links = None
-        self.__product_id = None
         self.__db_release_components = None
         self.__all_db_patches = None
         self.username = None
@@ -133,11 +131,6 @@ class OraclePatchDownloader:
             self.__build_dict_platform_codes(
                 platform_names,
                 em_catalog_dir + os.path.sep + "aru_platforms.xml",
-            )
-
-        if not self.__product_id:
-            self.__extract_product_id(
-                em_catalog_dir + os.path.sep + "aru_products.xml"
             )
 
         if not self.__db_release_components:
@@ -470,7 +463,11 @@ class OraclePatchDownloader:
             "./components/ctype[@name='RELEASE']/component"
         ):
             component_name = component.find("name").text
-            if component_name in ["Oracle Database", "RAC One Node", "Oracle Clusterware"]:
+            if component_name in [
+                "Oracle Database",
+                "RAC One Node",
+                "Oracle Clusterware",
+            ]:
                 lifecycle_tag = component.find("lifecycle")
                 eol_extended = None
                 eol_premium = None
@@ -540,19 +537,9 @@ class OraclePatchDownloader:
                 and path_counter["standalone_recommendations"] > 0
                 and elem.tag == "release"
             ):
-                if elem.get("cid") in self.__db_release_components:
-                    component_id = elem.get("cid")
-                    for platform in elem:
-                        platform_id = platform.get("id")
-                        if platform_id in self.__platforms:
-                            recommended_patches[
-                                (component_id, platform_id)
-                            ] = set()
-                            for patch in platform:
-                                recommended_patches[
-                                    (component_id, platform_id)
-                                ].add(patch.get("uid"))
-                elem.clear()
+                self.__process_standalone_recommendations_tag(
+                    recommended_patches, elem
+                )
 
             if evt == "end" and elem.tag == "standalone_recommendations":
                 path_counter["standalone_recommendations"] -= 1
@@ -566,35 +553,79 @@ class OraclePatchDownloader:
                 and path_counter["components_recommendations"] > 0
                 and elem.tag == "release"
             ):
-                if elem.get("cid") in self.__db_release_components:
-                    component_id = elem.get("cid")
-                    for platform in elem:
-                        platform_id = platform.get("id")
-                        if platform_id in self.__platforms:
-                            if (
-                                component_id,
-                                platform_id,
-                            ) not in recommended_patches:
-                                recommended_patches[
-                                    (component_id, platform_id)
-                                ] = set()
-                            for patch in platform:
-                                recommended_patches[
-                                    (component_id, platform_id)
-                                ].add(patch.get("uid"))
-                elem.clear()
+                self.process_components_recommendations_tag(
+                    recommended_patches, elem
+                )
 
             if evt == "end" and elem.tag == "components_recommendations":
                 path_counter["components_recommendations"] -= 1
                 elem.clear()
 
         for reco_patch_key, reco_patch_plat in recommended_patches:
-            print(self.__db_release_components[reco_patch_key]["name"] + "\t" + self.__db_release_components[reco_patch_key]["version"] + "\t" + self.__platforms[reco_patch_plat])
-            for patch_uid in recommended_patches[(reco_patch_key, reco_patch_plat)]:
+            print(
+                self.__db_release_components[reco_patch_key]["name"]
+                + "\t"
+                + self.__db_release_components[reco_patch_key]["version"]
+                + "\t"
+                + self.__platforms[reco_patch_plat]
+            )
+            for patch_uid in recommended_patches[
+                (reco_patch_key, reco_patch_plat)
+            ]:
                 try:
                     print("\t" + self.__all_db_patches[patch_uid].description)
                 except KeyError:
                     print("Patch not found - " + patch_uid)
+
+    def process_components_recommendations_tag(
+        self, recommended_patches, elem
+    ):
+        """Processes the "patch" tags for the patch_recommendations.xml file.
+
+        Args:
+            elem (ElementTag): an ElementTag with tag == patch.
+            recommended_patches (set): an existing set of recommended patches
+            that will receive the recommendations for the components section.
+        """
+        if elem.get("cid") in self.__db_release_components:
+            component_id = elem.get("cid")
+            for platform in elem:
+                platform_id = platform.get("id")
+                if platform_id in self.__platforms:
+                    if (
+                        component_id,
+                        platform_id,
+                    ) not in recommended_patches:
+                        recommended_patches[
+                            (component_id, platform_id)
+                        ] = set()
+                    for patch in platform:
+                        recommended_patches[(component_id, platform_id)].add(
+                            patch.get("uid")
+                        )
+        elem.clear()
+
+    def __process_standalone_recommendations_tag(
+        self, recommended_patches, elem
+    ):
+        """Processes the "patch" tags for the patch_recommendations.xml file.
+
+        Args:
+            elem (ElementTag): an ElementTag with tag == patch.
+            recommended_patches (set): an existing set of recommended patches
+            that will receive the recommendations for the standalone section.
+        """
+        if elem.get("cid") in self.__db_release_components:
+            component_id = elem.get("cid")
+            for platform in elem:
+                platform_id = platform.get("id")
+                if platform_id in self.__platforms:
+                    recommended_patches[(component_id, platform_id)] = set()
+                    for patch in platform:
+                        recommended_patches[(component_id, platform_id)].add(
+                            patch.get("uid")
+                        )
+        elem.clear()
 
     def __process_patch_tag(self, elem):
         """Processes the "patch" tags for the patch_recommendations.xml file.
@@ -602,9 +633,7 @@ class OraclePatchDownloader:
         Args:
             elem (ElementTag): an ElementTag with tag == patch.
         """
-        # product_id = elem.find(f"product[@id='{self.__product_id}']")
         platform_id = elem.find("platform").get("id")
-        # if product_id is not None and platform_id in self.__platforms:
         if platform_id in self.__platforms:
             patch_files = []
             for file in elem.iterfind("./files/file"):
