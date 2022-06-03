@@ -86,7 +86,8 @@ class OraclePatchDownloader:
 
         for dl_link in self.__download_links:
             try:
-                self.__download_link(dl_link, target_dir, progress_function)
+                oracle_checksum = self.__obtain_sha256_checksum_oracle(dl_link)
+                self.__download_link(dl_link, oracle_checksum, target_dir, progress_function)
             except ChecksumMismatch:
                 local_filename = (
                     target_dir
@@ -255,11 +256,13 @@ class OraclePatchDownloader:
             for link in links:
                 self.__download_links.append(link["href"])
 
-    def __download_link(self, url, target_dir, progress_function):
+    def __download_link(self, url, oracle_file_checksum, target_dir, progress_function):
         """Downloads to the target_dir the file specified by the url.
 
         Args:
             url (str): the link to be downloaded
+            oracle_file_checksum: SHA-256 checksum obtained from the download
+                source
             cookie_jar (requests.RequestsCookieJar): a cookie jar containing
                 Oracle Support connection information
             target_dir (str): The target directory where patches are downloaded
@@ -269,8 +272,6 @@ class OraclePatchDownloader:
                     - (int): file size in bytes
                     - (int): total downloaded in bytes
         """
-        oracle_file_checksum = self.__obtain_sha256_checksum_oracle(url)
-
         file_name = self.__extract_file_name_from_url(url)
 
         resp_dl = requests.get(
@@ -409,6 +410,7 @@ class OraclePatchDownloader:
         if not pathlib.Path(local_file_path).is_file():
             self.__download_link(
                 "https://updates.oracle.com/download/em_catalog.zip",
+                None,
                 target_dir,
                 None,
             )
@@ -418,22 +420,6 @@ class OraclePatchDownloader:
         )
         with zipfile.ZipFile(local_file_path, "r") as cat_zip_file:
             cat_zip_file.extractall(local_directory_path)
-
-    def __extract_product_id(self, products_file_path):
-        """Extracts the product id from the em_catalog/aru_products.xml.
-
-        Args:
-            products_file_path (str): Complete path of the aru_products.xml
-            file.
-        """
-
-        aru_products_doc = xml.etree.ElementTree.parse(products_file_path)
-        aru_platforms_doc_root = aru_products_doc.getroot()
-
-        for product in aru_platforms_doc_root.iterfind("./product"):
-            if product.text == "Oracle Database":
-                self.__product_id = product.get("id")
-                break
 
     def __build_dict_database_release_components(self, components_file_path):
         """Builds a dict of all database release components from the
