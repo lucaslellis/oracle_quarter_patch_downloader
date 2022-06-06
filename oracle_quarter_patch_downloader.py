@@ -18,6 +18,7 @@ Requires:
 
 import argparse
 import json
+import logging
 import math
 import os
 import sys
@@ -30,6 +31,9 @@ _AHF_PATCH_NUMBER = "30166242"
 _OPATCH_PATCH_NUMBER = "6880880"
 
 _CONFIG_FILE = "config.json"
+
+_LOGGER_FORMAT = r"%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+_LOGGER_DATE_FMT = r"%Y-%m-%d %H:%M:%S"
 
 
 def print_progress_function(file_name, file_size, total_downloaded):
@@ -69,13 +73,19 @@ def read_cli_args():
         "quarter."
     )
     cli_args_parser.add_argument(
-        "-d",
         "--dry-run",
         action="store_true",
         required=False,
         help="Returns the amount that will be downloaded (in MB) "
         "but does not download the patches",
         dest="dry_run_mode",
+    )
+    cli_args_parser.add_argument(
+        "--debug",
+        action="store_true",
+        required=False,
+        help="Increases the level of information during the execution",
+        dest="debug_mode",
     )
     cli_args = cli_args_parser.parse_args()
     return cli_args
@@ -88,14 +98,29 @@ def main(argv=None):
 
     cli_args = read_cli_args()
 
+    logging_level = logging.DEBUG if cli_args.debug_mode else logging.WARNING
+
+    logging.basicConfig(
+        format=_LOGGER_FORMAT,
+        level=logging_level,
+        datefmt=_LOGGER_DATE_FMT,
+    )
+
     config_json = []
-    with open(
-        os.path.join(sys.path[0], _CONFIG_FILE), encoding="utf-8"
-    ) as config_file:
-        config_json = json.load(config_file)
+    try:
+        with open(
+            os.path.join(sys.path[0], _CONFIG_FILE), encoding="utf-8"
+        ) as config_file:
+            config_json = json.load(config_file)
+    except (FileNotFoundError, json.decoder.JSONDecodeError) as excep:
+        error_str = (
+            f"Invalid config file - {str(excep)}"
+        )
+        logging.fatal(error_str)
+        return 1
 
     if config_json is None:
-        print("Invalid config file", file=sys.stderr)
+        logging.fatal("Invalid config file")
         return 1
 
     patch_dler = OraclePatchDownloader()
@@ -109,8 +134,11 @@ def main(argv=None):
             config_json["password"],
         )
     except RequestException as excep:
-        print("Not able to connect to updates.oracle.com", file=sys.stderr)
-        print("Error message: " + str(excep))
+        error_str = (
+            f"Not able to connect to updates.oracle.com\n"
+            f"Error message: {str(excep)}"
+        )
+        logging.fatal(error_str)
         return 1
 
     total_downloaded_bytes = 0
@@ -140,7 +168,9 @@ def main(argv=None):
     total_downloaded_bytes += 300 * 1024 * 1024
     print(f"Total downloaded ~ {total_downloaded_bytes/1024/1024:,.2f} MB")
 
+    logging.debug("Cleaning up the em_catalog* files")
     patch_dler.cleanup_downloader_resources(config_json["target_dir"])
+    logging.debug("Finished")
 
     return 0
 

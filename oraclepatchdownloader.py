@@ -12,11 +12,11 @@ Requires:
 import collections
 import datetime
 import hashlib
+import logging
 import os
 import pathlib
 import re
 import shutil
-import sys
 import xml.etree
 import zipfile
 from http import HTTPStatus
@@ -79,7 +79,7 @@ class OraclePatchDownloader:
             int: Total downloaded in bytes
         """
         if not self.__cookie_jar:
-            print("Please call initialize_downloader() first", file=sys.stderr)
+            logging.fatal("Please call initialize_downloader() first")
             return 1
 
         if self.__download_links:
@@ -106,12 +106,12 @@ class OraclePatchDownloader:
                     + os.path.sep
                     + self.__extract_file_name_from_url(dl_link)
                 )
-                print(
+                error_str = (
                     f"{local_filename}"
                     " checksum does not match Oracle's checksum. "
-                    "Please remove it manually and download it again.",
-                    file=sys.stderr,
+                    "Please remove it manually and download it again."
                 )
+                logging.error(error_str)
 
         return total_downloaded_bytes
 
@@ -187,12 +187,12 @@ class OraclePatchDownloader:
                         continue
                     patch = self.__all_db_patches[patch_uid]
                     if patch.access_level.upper() == "PASSWORD PROTECTED":
-                        print(
+                        error_str = (
                             f'Patch "{patch.number} - {patch.description}"'
                             " is password-protected. Download it manually"
-                            " if you need it.",
-                            file=sys.stderr,
+                            " if you need it."
                         )
+                        logging.error(error_str)
                         continue
                     for file in patch.files:
                         print(
@@ -209,12 +209,12 @@ class OraclePatchDownloader:
                                 dry_run_mode,
                             )
                         except ChecksumMismatch:
-                            print(
+                            error_str = (
                                 f"{file.name}"
                                 " checksum does not match Oracle's checksum. "
-                                "Please remove it manually and download it again.",
-                                file=sys.stderr,
+                                "Please remove it manually and download it again."
                             )
+                            logging.error(error_str)
 
                 desc_file_path_counter[desc_file_path] += 1
 
@@ -257,7 +257,9 @@ class OraclePatchDownloader:
         self.password = password
 
         if self.__cookie_jar is None:
+            logging.debug("Starting Oracle Support logon")
             self.__logon_oracle_support()
+            logging.debug("Successfully logged on to Oracle Support")
 
         pathlib.Path(target_dir).mkdir(parents=True, exist_ok=True)
 
@@ -277,9 +279,11 @@ class OraclePatchDownloader:
             )
 
         if not self.__recommended_db_patches:
+            logging.debug("Process patch_recommendations.xml - Beggining")
             self.__process_patch_recommendations_file(
                 em_catalog_dir + os.path.sep + "patch_recommendations.xml"
             )
+            logging.debug("Process patch_recommendations.xml - Ended")
 
     @staticmethod
     def cleanup_downloader_resources(target_dir):
@@ -605,8 +609,10 @@ class OraclePatchDownloader:
         pathlib.Path(target_dir + os.path.sep + "em_catalog").mkdir(
             parents=True, exist_ok=True
         )
+        logging.debug("Extract em_catalog.zip - Beggining")
         with zipfile.ZipFile(local_file_path, "r") as cat_zip_file:
             cat_zip_file.extractall(local_directory_path)
+        logging.debug("Extract em_catalog.zip - Ended")
 
     def __build_dict_database_release_components(self, components_file_path):
         """Builds a dict of all database release components from the
