@@ -40,26 +40,21 @@ class OraclePatchDownloader:
     Author: Lucas Pimentel Lellis
     """
 
-    def __init__(self):
-        """Builds an Oracle Patch downloader.
-
-        Creates an empty cookie jar to store logon information.
-        """
-        self.__cookie_jar = None
-        self.__platforms = None
-        self.__download_links = None
-        self.__db_release_components = None
-        self.__all_db_patches = None
-        self.__recommended_db_patches = None
-        self.username = None
-        self.password = None
+    __cookie_jar = None
+    __platforms = None
+    __download_links = None
+    __db_release_components = None
+    __all_db_patches = None
+    __recommended_db_patches = None
+    username = None
+    password = None
 
     def download_oracle_patch(
         self,
         patch_number,
         target_dir=".",
         progress_function=None,
-        dry_run_mode=True
+        dry_run_mode=True,
     ) -> int:
         """Downloads an Oracle Patch for the downloader platforms
         given a patch number,
@@ -84,7 +79,7 @@ class OraclePatchDownloader:
         """
         if not self.__cookie_jar:
             print("Please call initialize_downloader() first", file=sys.stderr)
-            return
+            return 1
 
         if self.__download_links:
             self.__download_links.clear()
@@ -98,8 +93,11 @@ class OraclePatchDownloader:
             try:
                 oracle_checksum = self.__obtain_sha256_checksum_oracle(dl_link)
                 total_downloaded_bytes += self.__download_link(
-                    dl_link, oracle_checksum, target_dir, progress_function,
-                    dry_run_mode
+                    dl_link,
+                    oracle_checksum,
+                    target_dir,
+                    progress_function,
+                    dry_run_mode,
                 )
             except ChecksumMismatch:
                 local_filename = (
@@ -187,18 +185,34 @@ class OraclePatchDownloader:
                     ):
                         continue
                     patch = self.__all_db_patches[patch_uid]
+                    if patch.access_level.upper() == "PASSWORD PROTECTED":
+                        print(
+                            f'Patch "{patch.number} - {patch.description}"'
+                            " is password-protected. Download it manually"
+                            " if you need it.",
+                            file=sys.stderr,
+                        )
+                        continue
                     for file in patch.files:
                         print(
                             f"{file.name} - {patch.description}",
                             file=desc_file,
                         )
                         total_downloaded_bytes += int(file.size)
-                        if not dry_run_mode:
+                        try:
                             self.__download_link(
                                 file.download_url,
                                 file.sha256sum,
                                 patch_dest_path,
                                 progress_function,
+                                dry_run_mode,
+                            )
+                        except ChecksumMismatch:
+                            print(
+                                f"{file.name}"
+                                " checksum does not match Oracle's checksum. "
+                                "Please remove it manually and download it again.",
+                                file=sys.stderr,
                             )
 
                 desc_file_path_counter[desc_file_path] += 1
@@ -383,8 +397,12 @@ class OraclePatchDownloader:
                 self.__download_links.append(link["href"])
 
     def __download_link(
-        self, url, oracle_file_checksum, target_dir, progress_function,
-        dry_run_mode=True
+        self,
+        url,
+        oracle_file_checksum,
+        target_dir,
+        progress_function,
+        dry_run_mode=True,
     ):
         """Downloads to the target_dir the file specified by the url.
 
@@ -416,6 +434,7 @@ class OraclePatchDownloader:
             timeout=_REQUEST_TIMEOUT,
         )
         file_size = resp_dl.headers.get("content-length")
+
         if file_size is None:
             file_size = 0
         else:
@@ -441,6 +460,7 @@ class OraclePatchDownloader:
         downloaded_file_checksum = self.__calculate_file_checksum(
             target_dir, file_name
         )
+
         if (
             oracle_file_checksum
             and oracle_file_checksum != downloaded_file_checksum
@@ -560,7 +580,7 @@ class OraclePatchDownloader:
                 None,
                 target_dir,
                 None,
-                dry_run_mode=False
+                dry_run_mode=False,
             )
 
         pathlib.Path(target_dir + os.path.sep + "em_catalog").mkdir(
@@ -675,6 +695,9 @@ class OraclePatchDownloader:
             and path_counter["patches"] > 0
             and elem.tag == "patch"
         ):
+            access_level_tag = elem.find("access")
+            if access_level_tag is not None:
+                access_level = access_level_tag.text
             platform_id = elem.find("platform").get("id")
             if platform_id in self.__platforms:
                 patch_files = []
@@ -698,6 +721,7 @@ class OraclePatchDownloader:
                     description=elem.find("bug").find("abstract").text,
                     platform_code=platform_id,
                     release_name=elem.find("release").get("name"),
+                    access_level=access_level,
                     files=patch_files,
                 )
 
@@ -816,14 +840,30 @@ class OraclePatchDownloader:
 class OraclePatch:
     """Structure grouping attributes of an Oracle Patch."""
 
+    uid = None
+    number = None
+    platform_code = None
+    release_name = None
+    description = None
+    access_level = None
+    files = None
+
     def __init__(
-        self, uid, number, platform_code, release_name, description, files
+        self,
+        uid,
+        number,
+        platform_code,
+        release_name,
+        description,
+        access_level,
+        files,
     ):
         self.uid = uid
         self.number = number
         self.platform_code = platform_code
         self.release_name = release_name
         self.description = description
+        self.access_level = access_level
         self.files = files
 
     def __str__(self):
@@ -833,7 +873,7 @@ class OraclePatch:
         repr_str = (
             f'OraclePatch("{self.uid}", "{self.number}", '
             f'"{self.platform_code}", "{self.release_name}", '
-            f'"{self.description}", "{self.files}")'
+            f'"{self.description}", "{self.access_level}", "{self.files}")'
         )
         return repr_str
 
@@ -846,6 +886,11 @@ class OraclePatch:
 
 class OraclePatchFile:
     """Structure grouping attributes of an Oracle Patch file."""
+
+    download_url = None
+    sha256sum = None
+    name = None
+    size = None
 
     def __init__(self, download_url, sha256sum, name, size):
         self.download_url = download_url
