@@ -195,7 +195,7 @@ class OraclePatchDownloader:
                         total_downloaded_bytes += int(file.size)
                         if not dry_run_mode:
                             self.__download_link(
-                                file.url,
+                                file.download_url,
                                 file.sha256sum,
                                 patch_dest_path,
                                 progress_function,
