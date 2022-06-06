@@ -100,6 +100,7 @@ def main(argv=None):
 
     patch_dler = OraclePatchDownloader()
 
+    print("Downloading em_catalog.zip")
     try:
         patch_dler.initialize_downloader(
             config_json["platforms"],
@@ -138,6 +139,8 @@ def main(argv=None):
     # em_catalog.zip and em_catalog directory occupy around 300 MB
     total_downloaded_bytes += 300 * 1024 * 1024
     print(f"Total downloaded ~ {total_downloaded_bytes/1024/1024:,.2f} MB")
+
+    patch_dler.cleanup_downloader_resources(config_json["target_dir"])
 
     return 0
 

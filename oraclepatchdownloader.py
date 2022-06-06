@@ -15,6 +15,7 @@ import hashlib
 import os
 import pathlib
 import re
+import shutil
 import sys
 import xml.etree
 import zipfile
@@ -279,6 +280,24 @@ class OraclePatchDownloader:
             self.__process_patch_recommendations_file(
                 em_catalog_dir + os.path.sep + "patch_recommendations.xml"
             )
+
+    @staticmethod
+    def cleanup_downloader_resources(target_dir):
+        """Cleans up the em_catalog files.
+
+        Args:
+            target_dir (str): The target directory where patches are downloaded
+                Defaults to ".".
+        """
+        catalog_file_path = target_dir + os.path.sep + "em_catalog.zip"
+        catalog_directory_path = target_dir + os.path.sep + "em_catalog"
+
+        shutil.rmtree(catalog_directory_path, ignore_errors=True)
+        catalog_file = pathlib.Path(catalog_file_path)
+        try:
+            catalog_file.unlink()
+        except FileNotFoundError:
+            pass
 
     def __logon_oracle_support(
         self,
