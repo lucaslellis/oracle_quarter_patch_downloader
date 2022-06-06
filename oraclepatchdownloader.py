@@ -562,8 +562,8 @@ class OraclePatchDownloader:
         """Calculates the SHA-256 checksum of the downloaded file.
 
         Args:
-            target_dir (str): _description_
-            file_name (str): _description_
+            target_dir (str): The target directory where patches are downloaded
+            file_name (str): patch file name
 
         Returns:
             str: SHA-256 checksum of the downloaded file
