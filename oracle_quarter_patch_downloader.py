@@ -16,10 +16,13 @@ Requires:
     - html5lib
 """
 
+import argparse
 import json
 import math
 import os
 import sys
+
+from requests import RequestException
 
 from oraclepatchdownloader import OraclePatchDownloader
 
@@ -55,10 +58,35 @@ def print_progress_function(file_name, file_size, total_downloaded):
         print("", flush=True)
 
 
+def read_cli_args():
+    """Reads command line interface arguments.
+
+    Returns:
+        namespace: the populated namespace of CLI arguments.
+    """
+    cli_args_parser = argparse.ArgumentParser(
+        description="Downloads Oracle recommended patches for the current "
+        "quarter."
+    )
+    cli_args_parser.add_argument(
+        "-d",
+        "--dry-run",
+        action="store_true",
+        required=False,
+        help="Returns the amount that will be downloaded (in MB) "
+        "but does not download the patches",
+        dest="dry_run_mode",
+    )
+    cli_args = cli_args_parser.parse_args()
+    return cli_args
+
+
 def main(argv=None):
     """Entry point."""
     if argv is None:
         argv = sys.argv
+
+    cli_args = read_cli_args()
 
     config_json = []
     with open(
@@ -72,31 +100,44 @@ def main(argv=None):
 
     patch_dler = OraclePatchDownloader()
 
-    patch_dler.initialize_downloader(
-        config_json["platforms"],
-        config_json["target_dir"],
-        config_json["username"],
-        config_json["password"],
+    try:
+        patch_dler.initialize_downloader(
+            config_json["platforms"],
+            config_json["target_dir"],
+            config_json["username"],
+            config_json["password"],
+        )
+    except RequestException as excep:
+        print("Not able to connect to updates.oracle.com", file=sys.stderr)
+        print("Error message: " + str(excep))
+        return 1
+
+    total_downloaded_bytes = 0
+    total_downloaded_bytes += patch_dler.download_oracle_patch(
+        patch_number=_AHF_PATCH_NUMBER,
+        target_dir=config_json["target_dir"] + os.path.sep + "ahf",
+        progress_function=print_progress_function,
+        dry_run_mode=cli_args.dry_run_mode,
     )
 
-    patch_dler.download_oracle_patch(
-        _AHF_PATCH_NUMBER,
-        config_json["target_dir"] + os.path.sep + "ahf",
-        print_progress_function,
-    )
-
-    patch_dler.download_oracle_patch(
-        _OPATCH_PATCH_NUMBER,
+    total_downloaded_bytes += patch_dler.download_oracle_patch(
+        patch_number=_OPATCH_PATCH_NUMBER,
         target_dir=config_json["target_dir"] + os.path.sep + "opatch",
         progress_function=print_progress_function,
+        dry_run_mode=cli_args.dry_run_mode,
     )
 
-    patch_dler.download_oracle_quarter_patches(
-        config_json["target_dir"] + os.path.sep + "quarter_patches",
-        [r"^(8|9|10)\..+", r"^11\.1\..+", r"^11\.2\.0\.[^4]\..+"],
-        [r".*EXADATA.*"],
-        print_progress_function
+    total_downloaded_bytes += patch_dler.download_oracle_quarter_patches(
+        target_dir=config_json["target_dir"] + os.path.sep + "quarter_patches",
+        ignored_releases=config_json["ignored_releases"],
+        ignored_description_words=config_json["ignored_description_words"],
+        progress_function=print_progress_function,
+        dry_run_mode=cli_args.dry_run_mode,
     )
+
+    # em_catalog.zip and em_catalog directory occupy around 300 MB
+    total_downloaded_bytes += 300 * 1024 * 1024
+    print(f"Total downloaded ~ {total_downloaded_bytes/1024/1024:,.2f} MB")
 
     return 0
 

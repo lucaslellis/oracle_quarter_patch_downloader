@@ -6,5 +6,14 @@
         "IBM AIX on POWER Systems (64-bit)",
         "Linux x86-64",
         "Microsoft Windows x64 (64-bit)"
+    ],
+    "ignored_releases": [
+        "^(8|9|10|11)\\..+",
+        "^11\\.1\\..+",
+        "^11\\.2\\.0\\.[^4]\\..+"
+    ],
+    "ignored_description_words": [
+        ".*\\bEXADATA\\b.*",
+        ".*\\bCOMBO\\b.*"
     ]
 }

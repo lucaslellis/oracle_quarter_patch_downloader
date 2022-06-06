@@ -12,7 +12,6 @@ Requires:
 import collections
 import datetime
 import hashlib
-from locale import normalize
 import os
 import pathlib
 import re
@@ -60,7 +59,8 @@ class OraclePatchDownloader:
         patch_number,
         target_dir=".",
         progress_function=None,
-    ):
+        dry_run_mode=True
+    ) -> int:
         """Downloads an Oracle Patch for the downloader platforms
         given a patch number,
         a target directory (optional) and a function to display
@@ -76,6 +76,11 @@ class OraclePatchDownloader:
                     - (int): file size in bytes
                     - (int): total downloaded in bytes
                 Defaults to None.
+            dry_run_mode: Returns the amount downloaded in bytes without
+            actually downloading the files. Defaults to True.
+
+        Returns:
+            int: Total downloaded in bytes
         """
         if not self.__cookie_jar:
             print("Please call initialize_downloader() first", file=sys.stderr)
@@ -88,11 +93,13 @@ class OraclePatchDownloader:
 
         pathlib.Path(target_dir).mkdir(parents=True, exist_ok=True)
 
+        total_downloaded_bytes = 0
         for dl_link in self.__download_links:
             try:
                 oracle_checksum = self.__obtain_sha256_checksum_oracle(dl_link)
-                self.__download_link(
-                    dl_link, oracle_checksum, target_dir, progress_function
+                total_downloaded_bytes += self.__download_link(
+                    dl_link, oracle_checksum, target_dir, progress_function,
+                    dry_run_mode
                 )
             except ChecksumMismatch:
                 local_filename = (
@@ -107,30 +114,39 @@ class OraclePatchDownloader:
                     file=sys.stderr,
                 )
 
+        return total_downloaded_bytes
+
     def download_oracle_quarter_patches(
         self,
         target_dir,
         ignored_releases,
         ignored_description_words,
         progress_function,
-    ):
+        dry_run_mode=True,
+    ) -> int:
         """Downloads all Oracle DB and GI recommended patches for the
         current quarter.
 
-        target_dir (str): The target directory where patches are downloaded.
-        Defaults to ".".
-        ignored_releases (list): A list containing regexes of versions to be
-        ignored for downloads.
-        ignored_description_words (list): A list containing regexes of words to
-        be matched for descriptions of patches that must not be downloaded.
-        progress_function (function): a function that will be called with
-        the following parameters:
-            - (str): file name
-            - (int): file size in bytes
-            - (int): total downloaded in bytes
-        Defaults to None.
+        Args:
+            target_dir (str): The target directory where patches are
+            downloaded. Defaults to ".".
+            ignored_releases (list): A list containing regexes of versions to
+            be ignored for downloads.
+            ignored_description_words (list): A list containing regexes of
+            words to be matched for descriptions of patches that must not be
+            downloaded.
+            progress_function (function): a function that will be called with
+            the following parameters:
+                - (str): file name
+                - (int): file size in bytes
+                - (int): total downloaded in bytes
+            Defaults to None.
+
+        Returns:
+            int: Total downloaded in bytes
         """
         desc_file_path_counter = collections.Counter()
+        total_downloaded_bytes = 0
         for (
             reco_patch_comp_id,
             reco_patch_plat,
@@ -160,9 +176,7 @@ class OraclePatchDownloader:
                 desc_file_open_mode = "wt"
 
             with open(
-                desc_file_path,
-                encoding="utf-8",
-                mode=desc_file_open_mode
+                desc_file_path, encoding="utf-8", mode=desc_file_open_mode
             ) as desc_file:
                 for patch_uid in self.__recommended_db_patches[
                     (reco_patch_comp_id, reco_patch_plat)
@@ -173,12 +187,23 @@ class OraclePatchDownloader:
                     ):
                         continue
                     patch = self.__all_db_patches[patch_uid]
-                    print("\t" + patch.description)
                     for file in patch.files:
-                        print(f"{file.name} - {patch.description}", file=desc_file)
+                        print(
+                            f"{file.name} - {patch.description}",
+                            file=desc_file,
+                        )
+                        total_downloaded_bytes += int(file.size)
+                        if not dry_run_mode:
+                            self.__download_link(
+                                file.url,
+                                file.sha256sum,
+                                patch_dest_path,
+                                progress_function,
+                            )
 
                 desc_file_path_counter[desc_file_path] += 1
 
+        return total_downloaded_bytes
 
     @staticmethod
     def __is_expression_ignored(ignored_expressions, expression) -> bool:
@@ -358,7 +383,8 @@ class OraclePatchDownloader:
                 self.__download_links.append(link["href"])
 
     def __download_link(
-        self, url, oracle_file_checksum, target_dir, progress_function
+        self, url, oracle_file_checksum, target_dir, progress_function,
+        dry_run_mode=True
     ):
         """Downloads to the target_dir the file specified by the url.
 
@@ -374,6 +400,11 @@ class OraclePatchDownloader:
                     - (str): file name
                     - (int): file size in bytes
                     - (int): total downloaded in bytes
+            dry_run_mode: Returns the amount downloaded in bytes without
+            actually downloading the files. Defaults to True.
+
+        Returns:
+            int: Total downloaded in bytes
         """
         file_name = self.__extract_file_name_from_url(url)
 
@@ -389,6 +420,9 @@ class OraclePatchDownloader:
             file_size = 0
         else:
             file_size = int(file_size)
+
+        if dry_run_mode:
+            return file_size
 
         if self.__check_file_exists(target_dir, file_name, file_size):
             progress_function(file_name, file_size, file_size)
@@ -412,6 +446,8 @@ class OraclePatchDownloader:
             and oracle_file_checksum != downloaded_file_checksum
         ):
             raise ChecksumMismatch
+
+        return file_size
 
     @staticmethod
     def __extract_file_name_from_url(url) -> str:
@@ -524,6 +560,7 @@ class OraclePatchDownloader:
                 None,
                 target_dir,
                 None,
+                dry_run_mode=False
             )
 
         pathlib.Path(target_dir + os.path.sep + "em_catalog").mkdir(
@@ -651,6 +688,7 @@ class OraclePatchDownloader:
                                 "./digest[@type='SHA-256']"
                             ).text,
                             name=file.find("name").text,
+                            size=file.find("size").text,
                         )
                     )
 
@@ -809,10 +847,11 @@ class OraclePatch:
 class OraclePatchFile:
     """Structure grouping attributes of an Oracle Patch file."""
 
-    def __init__(self, download_url, sha256sum, name):
+    def __init__(self, download_url, sha256sum, name, size):
         self.download_url = download_url
         self.sha256sum = sha256sum
         self.name = name
+        self.size = size
 
     def __str__(self):
         return str(self.__dict__)
@@ -820,7 +859,7 @@ class OraclePatchFile:
     def __repr__(self):
         repr_str = (
             f'OraclePatchFile("{self.download_url}",'
-            f'"{self.sha256sum}", "{self.name})'
+            f'"{self.sha256sum}", "{self.name}", "{self.size})'
         )
         return repr_str
 
