@@ -300,14 +300,21 @@ class OraclePatchDownloader:
                 Defaults to ".".
             username (str): Oracle Support Username
             password (str): Oracle Support Password
+
+        Raises:
+            OracleSupportError: when not able to log on to Oracle Support
         """
+
         self.username = username
         self.password = password
 
         if self.__cookie_jar is None:
             logging.debug("Starting Oracle Support logon")
-            self.__logon_oracle_support()
-            logging.debug("Successfully logged on to Oracle Support")
+            ret = self.__logon_oracle_support()
+            if not ret:
+                logging.debug("Successfully logged on to Oracle Support")
+            else:
+                raise OracleSupportError("Status code 401")
 
         pathlib.Path(target_dir).mkdir(parents=True, exist_ok=True)
 
@@ -403,6 +410,11 @@ class OraclePatchDownloader:
             if status_code == HTTPStatus.OK:
                 self.__cookie_jar.update(login_response.cookies)
                 break
+
+        if login_response.status_code == HTTPStatus.UNAUTHORIZED:
+            return 1
+
+        return 0
 
     def __build_dict_platform_codes(
         self, platforms_names, platform_codes_file_path
@@ -985,3 +997,6 @@ class OraclePatchFile:
 
 class ChecksumMismatch(Exception):
     """Raised when the downloaded file checksum does not match Oracle's."""
+
+class OracleSupportError(Exception):
+    """Raised when not able to log on to Oracle Support."""

@@ -27,7 +27,7 @@ import sys
 
 from requests import RequestException
 
-from oraclepatchdownloader import OraclePatchDownloader
+from oraclepatchdownloader import OraclePatchDownloader, OracleSupportError
 
 _AHF_PATCH_NUMBER = "30166242"
 _OPATCH_PATCH_NUMBER = "6880880"
@@ -152,6 +152,10 @@ def main(argv=None):
 
     patch_dler = OraclePatchDownloader()
 
+    logging.debug("Cleaning up the em_catalog* files")
+    patch_dler.cleanup_downloader_resources(config_json["target_dir"])
+    logging.debug("Finished")
+
     print("Downloading em_catalog.zip")
     try:
         patch_dler.initialize_downloader(
@@ -160,7 +164,7 @@ def main(argv=None):
             config_json["username"],
             config_json["password"],
         )
-    except RequestException as excep:
+    except (RequestException, OracleSupportError) as excep:
         error_str = (
             f"Not able to connect to updates.oracle.com\n"
             f"Error message: {str(excep)}"
