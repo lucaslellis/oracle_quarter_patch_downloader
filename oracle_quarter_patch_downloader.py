@@ -67,15 +67,13 @@ def print_progress_function(file_name, file_size, total_downloaded):
         print("", flush=True)
 
 
-def print_platforms(target_dir, patch_dler):
+def print_platforms(patch_dler):
     """Prints a dictionary of platforms
 
     Args:
-        target_dir (str): target_dir (str): The target directory where patches
-        are downloaded.
         patch_dler (OraclePatchDownloader): Oracle Patch downloader object
     """
-    platforms = patch_dler.list_platforms(target_dir)
+    platforms = patch_dler.list_platforms()
     sorted_platforms = sorted(platforms.items(), key=lambda kv: kv[1])
     if platforms:
         print(
@@ -175,7 +173,7 @@ def main(argv=None):
         return 1
 
     if cli_args.list_platforms_only:
-        print_platforms(config_json["target_dir"], patch_dler)
+        print_platforms(patch_dler)
         return 0
 
     total_downloaded_bytes = 0
