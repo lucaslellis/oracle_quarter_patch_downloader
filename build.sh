@@ -2,6 +2,8 @@
 
 git_tag=`git describe --tags --abbrev=0`
 
+mkdir -p build
+
 cp "oraclepatchdownloader.py" "oracle_quarter_patch_downloader.py" "config.json.template" "LICENSE" "README.md" build/
 
 cd build/
