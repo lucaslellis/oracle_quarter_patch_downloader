@@ -15,7 +15,7 @@ Based on [getMosPatch from Maris Elsins.](https://github.com/MarisElsins/getMOSP
 
 ## Instructions
 
-* Ensure that the packages `python3` and `python3-pip` are installed (RHEL 7.x / OEL 7.x).
+* Ensure that the packages `python3` and `python3-pip` are installed (RHEL 7.x / OEL 7.x)
 * Install required packages with pip3
 
   ```bash
@@ -23,5 +23,23 @@ Based on [getMosPatch from Maris Elsins.](https://github.com/MarisElsins/getMOSP
   ```
 
 * Download the latest [release](../../releases/latest) and unzip it on a
-  directory.
-* Rename [config.json.template](config.json.template) to `config.json` and fill in the required variables.
+  directory
+* Rename [config.json.template](config.json.template) to `config.json` and fill in the required variables
+* Set the execution permission
+
+  ```bash
+  chmod +x oracle_quarter_patch_downloader.py
+  ```
+
+* Run in dry-run mode to estimate the space needed
+
+  ```bash
+  ./oracle_quarter_patch_downloader.py --dry-run
+  ```
+
+* Run in normal mode to download the patches
+
+  ```bash
+  nohup ./oracle_quarter_patch_downloader.py > oracle_quarter_patch_downloader.log 2>&1 &
+  tail -100f oracle_quarter_patch_downloader.log
+  ```
