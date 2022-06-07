@@ -62,6 +62,25 @@ def print_progress_function(file_name, file_size, total_downloaded):
         print("", flush=True)
 
 
+def print_platforms(target_dir, patch_dler):
+    """Prints a dictionary of platforms
+
+    Args:
+        target_dir (str): target_dir (str): The target directory where patches
+        are downloaded.
+        patch_dler (OraclePatchDownloader): Oracle Patch downloader object
+    """
+    platforms = patch_dler.list_platforms(target_dir)
+    sorted_platforms = sorted(platforms.items(), key=lambda kv: kv[1])
+    if platforms:
+        print(
+            "CODE   - NAME\n"
+            "=========================================================="
+        )
+        for plat_code, plat_value in sorted_platforms:
+            print(f"{plat_code:6} - {plat_value}")
+
+
 def read_cli_args():
     """Reads command line interface arguments.
 
@@ -86,6 +105,14 @@ def read_cli_args():
         required=False,
         help="Increases the level of information during the execution",
         dest="debug_mode",
+    )
+    cli_args_parser.add_argument(
+        "-l",
+        "--list-platforms-only",
+        action="store_true",
+        required=False,
+        help="Only prints the list of platform codes and names",
+        dest="list_platforms_only",
     )
     cli_args = cli_args_parser.parse_args()
     return cli_args
@@ -113,9 +140,7 @@ def main(argv=None):
         ) as config_file:
             config_json = json.load(config_file)
     except (FileNotFoundError, json.decoder.JSONDecodeError) as excep:
-        error_str = (
-            f"Invalid config file - {str(excep)}"
-        )
+        error_str = f"Invalid config file - {str(excep)}"
         logging.fatal(error_str)
         return 1
 
@@ -140,6 +165,10 @@ def main(argv=None):
         )
         logging.fatal(error_str)
         return 1
+
+    if cli_args.list_platforms_only:
+        print_platforms(config_json["target_dir"], patch_dler)
+        return 0
 
     total_downloaded_bytes = 0
     total_downloaded_bytes += patch_dler.download_oracle_patch(
