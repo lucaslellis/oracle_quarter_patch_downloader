@@ -98,7 +98,7 @@ def main(argv=None):
 
     cli_args = read_cli_args()
 
-    logging_level = logging.DEBUG if cli_args.debug_mode else logging.WARNING
+    logging_level = logging.DEBUG if cli_args.debug_mode else logging.INFO
 
     logging.basicConfig(
         format=_LOGGER_FORMAT,

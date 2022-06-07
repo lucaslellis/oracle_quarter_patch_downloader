@@ -194,6 +194,9 @@ class OraclePatchDownloader:
                         logging.error(error_str)
                         continue
 
+                    if dry_run_mode:
+                        logging.info(patch.description)
+
                     for file in patch.files:
                         print(
                             f"{file.name} - {patch.description}",
@@ -483,6 +486,7 @@ class OraclePatchDownloader:
             file_size = int(file_size)
 
         if dry_run_mode:
+            logging.info(file_name)
             return file_size
 
         if self.__check_file_exists(target_dir, file_name, file_size):
