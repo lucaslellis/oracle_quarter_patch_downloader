@@ -52,6 +52,30 @@ class OraclePatchDownloader:
     username = None
     password = None
 
+    def list_platforms(
+        self, target_dir
+    ) -> list:
+        """Returns a dictionary of all platforms containing a tuple for each
+        line with a code and a description.
+
+        Args:
+            target_dir (str): The target directory where patches are downloaded
+
+        Returns:
+            dict: Dictionary of platforms
+        """
+        aru_platforms_doc = xml.etree.ElementTree.parse(
+            target_dir + os.path.sep + "em_catalog" + os.path.sep + "aru_platforms.xml"
+        )
+        aru_platforms_doc_root = aru_platforms_doc.getroot()
+
+        platforms = {
+            tag.get("id"): tag.text.strip()
+            for tag in aru_platforms_doc_root.iterfind("./platform")
+        }
+
+        return platforms
+
     def download_oracle_patch(
         self,
         patch_number,
