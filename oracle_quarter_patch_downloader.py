@@ -27,7 +27,7 @@ import sys
 
 from requests import RequestException
 
-from oraclepatchdownloader import OraclePatchDownloader, OracleSupportError
+from oraclepatchdownloader import OraclePatchDownloader, OraclePatchType, OracleSupportError
 
 _AHF_PATCH_NUMBER = "30166242"
 _OPATCH_PATCH_NUMBER = "6880880"
@@ -150,20 +150,19 @@ def main(argv=None):
         logging.fatal("Invalid config file")
         return 1
 
-    patch_dler = OraclePatchDownloader()
+    patch_dler = OraclePatchDownloader(username=config_json["username"],
+            password=config_json["password"],
+            wanted_platforms=config_json["platforms"],
+            target_dir=config_json["target_dir"],
+            )
 
     logging.debug("Cleaning up the em_catalog* files")
-    patch_dler.cleanup_downloader_resources(config_json["target_dir"])
+    patch_dler.cleanup_downloader_resources()
     logging.debug("Finished")
 
     print("Downloading em_catalog.zip")
     try:
-        patch_dler.initialize_downloader(
-            config_json["platforms"],
-            config_json["target_dir"],
-            config_json["username"],
-            config_json["password"],
-        )
+        patch_dler.initialize_downloader()
     except (RequestException, OracleSupportError) as excep:
         error_str = (
             f"Not able to connect to updates.oracle.com\n"
@@ -179,20 +178,20 @@ def main(argv=None):
     total_downloaded_bytes = 0
     total_downloaded_bytes += patch_dler.download_oracle_patch(
         patch_number=_AHF_PATCH_NUMBER,
-        target_dir=config_json["target_dir"] + os.path.sep + "ahf",
+        patch_type=OraclePatchType.AHF,
         progress_function=print_progress_function,
         dry_run_mode=cli_args.dry_run_mode,
     )
 
     total_downloaded_bytes += patch_dler.download_oracle_patch(
         patch_number=_OPATCH_PATCH_NUMBER,
-        target_dir=config_json["target_dir"] + os.path.sep + "opatch",
+        patch_type=OraclePatchType.OPATCH,
         progress_function=print_progress_function,
         dry_run_mode=cli_args.dry_run_mode,
     )
 
     total_downloaded_bytes += patch_dler.download_oracle_quarter_patches(
-        target_dir=config_json["target_dir"] + os.path.sep + "quarter_patches",
+        patch_type=OraclePatchType.QUARTER,
         ignored_releases=config_json["ignored_releases"],
         ignored_description_words=config_json["ignored_description_words"],
         progress_function=print_progress_function,
@@ -204,7 +203,7 @@ def main(argv=None):
     print(f"Total downloaded ~ {total_downloaded_bytes/1024/1024:,.2f} MB")
 
     logging.debug("Cleaning up the em_catalog* files")
-    patch_dler.cleanup_downloader_resources(config_json["target_dir"])
+    patch_dler.cleanup_downloader_resources()
     logging.debug("Finished")
 
     return 0

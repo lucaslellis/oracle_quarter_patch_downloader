@@ -13,6 +13,7 @@ Version: $Id$
 
 import collections
 import datetime
+from enum import Enum
 import hashlib
 import logging
 import os
@@ -45,32 +46,81 @@ class OraclePatchDownloader:
     Author: Lucas Pimentel Lellis
     """
 
-    def __init__(self):
+    def __init__(self, username, password, wanted_platforms, target_dir="."):
         """Creates an instance of OraclePatchDownloader
+
+        Args:
+            username (str): Oracle Support Username
+            password (str): Oracle Support Password
+            wanted_platform (list): A list of platform names, as defined by
+                Oracle, that the user wants patches to be downloaded.
+            target_dir (str): The target directory where patches are downloaded
+                Defaults to ".".
         """
         self.__cookie_jar = None
-        self.__platforms = None
+        self.__all_platforms = None
         self.__download_links = None
         self.__db_release_components = None
         self.__all_db_patches = None
         self.__recommended_db_patches = None
-        self.username = None
-        self.password = None
+        self.username = username
+        self.password = password
+        self.target_dir = target_dir
+        self.wanted_platforms = wanted_platforms
 
-    def list_platforms(
-        self, target_dir
-    ) -> list:
-        """Returns a dictionary of all platforms containing a tuple for each
-        line with a code and a description.
+    def initialize_downloader(self):
+        """Initializes the downloader.
+
+        Performs the logon to Oracle Support and downloads the catalog files.
 
         Args:
+            platform_names (_type_): A list of platform names as defined by
+                Oracle.
             target_dir (str): The target directory where patches are downloaded
+                Defaults to ".".
+            username (str): Oracle Support Username
+            password (str): Oracle Support Password
+
+        Raises:
+            OracleSupportError: when not able to log on to Oracle Support
+        """
+
+        if self.__cookie_jar is None:
+            logging.debug("Starting Oracle Support logon")
+            ret = self.__logon_oracle_support()
+            if not ret:
+                logging.debug("Successfully logged on to Oracle Support")
+            else:
+                raise OracleSupportError("Status code 401")
+
+        pathlib.Path(self.target_dir).mkdir(parents=True, exist_ok=True)
+
+        self.__download_em_catalog()
+
+        if self.__all_platforms is None:
+            self.__build_dict_platform_codes()
+
+        if not self.__db_release_components:
+            self.__build_dict_database_release_components()
+
+        if not self.__recommended_db_patches:
+            logging.debug("Process patch_recommendations.xml - Beginning")
+            self.__process_patch_recommendations_file()
+            logging.debug("Process patch_recommendations.xml - Ended")
+
+    def list_platforms(self) -> list:
+        """Returns a dictionary of all platforms containing a tuple for each
+        line with a code and a description.
 
         Returns:
             dict: Dictionary of platforms
         """
         aru_platforms_doc = xml.etree.ElementTree.parse(
-            target_dir + os.path.sep + "em_catalog" + os.path.sep + "aru_platforms.xml"
+            self.target_dir
+            + os.path.sep
+            + "em_catalog"
+            + os.path.sep
+            + "aru_platforms.xml"
         )
         aru_platforms_doc_root = aru_platforms_doc.getroot()
 
@@ -84,7 +134,7 @@ class OraclePatchDownloader:
     def download_oracle_patch(
         self,
         patch_number,
-        target_dir=".",
+        patch_type,
         progress_function=None,
         dry_run_mode=True,
     ) -> int:
@@ -95,8 +145,7 @@ class OraclePatchDownloader:
 
         Args:
             patch_number (str): an Oracle patch number
-            target_dir (str): The target directory where patches are downloaded
-                Defaults to ".".
+            patch_type (OraclePatchType): type of the patch being downloaded
             progress_function (function): a function that will be called with
                 the following parameters:
                     - (str): file name
@@ -118,7 +167,9 @@ class OraclePatchDownloader:
 
         self.__build_list_download_links(patch_number)
 
-        pathlib.Path(target_dir).mkdir(parents=True, exist_ok=True)
+        dest_dir = self.target_dir + os.path.sep + patch_type.value
+
+        pathlib.Path(dest_dir).mkdir(parents=True, exist_ok=True)
 
         total_downloaded_bytes = 0
         for dl_link in self.__download_links:
@@ -127,13 +178,13 @@ class OraclePatchDownloader:
                 total_downloaded_bytes += self.__download_link(
                     dl_link,
                     oracle_checksum,
-                    target_dir,
+                    dest_dir,
                     progress_function,
                     dry_run_mode,
                 )
             except ChecksumMismatch:
                 local_filename = (
-                    target_dir
+                    dest_dir
                     + os.path.sep
                     + self.__extract_file_name_from_url(dl_link)
                 )
@@ -148,7 +199,7 @@ class OraclePatchDownloader:
 
     def download_oracle_quarter_patches(
         self,
-        target_dir,
+        patch_type,
         ignored_releases,
         ignored_description_words,
         progress_function,
@@ -158,8 +209,7 @@ class OraclePatchDownloader:
         current quarter.
 
         Args:
-            target_dir (str): The target directory where patches are
-            downloaded. Defaults to ".".
+            patch_type (OraclePatchType): type of the patch being downloaded
             ignored_releases (list): A list containing regexes of versions to
             be ignored for downloads.
             ignored_description_words (list): A list containing regexes of
@@ -175,6 +225,7 @@ class OraclePatchDownloader:
         Returns:
             int: Total downloaded in bytes
         """
+        dest_dir = self.target_dir + os.path.sep + patch_type.value
         desc_file_path_counter = collections.Counter()
         total_downloaded_bytes = 0
         for (
@@ -182,7 +233,7 @@ class OraclePatchDownloader:
             reco_patch_plat,
         ) in self.__recommended_db_patches:
             normalized_plat_dir_name = self.__normalize_directory_name(
-                self.__platforms[reco_patch_plat]
+                self.__all_platforms[reco_patch_plat]
             )
             version = self.__db_release_components[reco_patch_comp_id][
                 "version"
@@ -191,7 +242,7 @@ class OraclePatchDownloader:
                 continue
 
             patch_dest_path = (
-                target_dir
+                dest_dir
                 + os.path.sep
                 + version
                 + os.path.sep
@@ -251,19 +302,15 @@ class OraclePatchDownloader:
 
                 desc_file_path_counter[desc_file_path] += 1
 
-        self.__remove_duplicate_lines_desc_files(target_dir)
+        self.__remove_duplicate_lines_desc_files()
 
         return total_downloaded_bytes
 
-    @staticmethod
-    def __remove_duplicate_lines_desc_files(target_dir):
-        """Removes duplicate lines from description.txt files.
-
-        Args:
-            target_dir (str): target_dir (str): The target directory where
-            patches are downloaded.
-        """
-        desc_file_list = pathlib.Path(target_dir).glob(f"**/{_DESC_FILE_NAME}")
+    def __remove_duplicate_lines_desc_files(self):
+        """Removes duplicate lines from description.txt files."""
+        desc_file_list = pathlib.Path(self.target_dir).glob(
+            f"**/{_DESC_FILE_NAME}"
+        )
         for desc_file in desc_file_list:
             with open(desc_file, "r+t", encoding="utf-8") as desc_file_handler:
                 desc_lines_set = sorted(set(desc_file_handler.readlines()))
@@ -289,70 +336,10 @@ class OraclePatchDownloader:
 
         return False
 
-    def initialize_downloader(
-        self, platform_names, target_dir, username, password
-    ):
-        """Initializes the downloader.
-
-        Performs the logon to Oracle Support and downloads the catalog files.
-
-        Args:
-            platform_names (_type_): A list of platform names as defined by
-                Oracle.
-            target_dir (str): The target directory where patches are downloaded
-                Defaults to ".".
-            username (str): Oracle Support Username
-            password (str): Oracle Support Password
-
-        Raises:
-            OracleSupportError: when not able to log on to Oracle Support
-        """
-
-        self.username = username
-        self.password = password
-
-        if self.__cookie_jar is None:
-            logging.debug("Starting Oracle Support logon")
-            ret = self.__logon_oracle_support()
-            if not ret:
-                logging.debug("Successfully logged on to Oracle Support")
-            else:
-                raise OracleSupportError("Status code 401")
-
-        pathlib.Path(target_dir).mkdir(parents=True, exist_ok=True)
-
-        self.__download_em_catalog(target_dir)
-
-        em_catalog_dir = target_dir + os.path.sep + "em_catalog"
-
-        if self.__platforms is None:
-            self.__build_dict_platform_codes(
-                platform_names,
-                em_catalog_dir + os.path.sep + "aru_platforms.xml",
-            )
-
-        if not self.__db_release_components:
-            self.__build_dict_database_release_components(
-                em_catalog_dir + os.path.sep + "components.xml"
-            )
-
-        if not self.__recommended_db_patches:
-            logging.debug("Process patch_recommendations.xml - Beginning")
-            self.__process_patch_recommendations_file(
-                em_catalog_dir + os.path.sep + "patch_recommendations.xml"
-            )
-            logging.debug("Process patch_recommendations.xml - Ended")
-
-    @staticmethod
-    def cleanup_downloader_resources(target_dir):
-        """Cleans up the em_catalog files.
-
-        Args:
-            target_dir (str): The target directory where patches are downloaded
-                Defaults to ".".
-        """
-        catalog_file_path = target_dir + os.path.sep + "em_catalog.zip"
-        catalog_directory_path = target_dir + os.path.sep + "em_catalog"
+    def cleanup_downloader_resources(self):
+        """Cleans up the em_catalog files."""
+        catalog_file_path = self.target_dir + os.path.sep + "em_catalog.zip"
+        catalog_directory_path = self.target_dir + os.path.sep + "em_catalog"
 
         shutil.rmtree(catalog_directory_path, ignore_errors=True)
         catalog_file = pathlib.Path(catalog_file_path)
@@ -419,43 +406,34 @@ class OraclePatchDownloader:
 
         return 0
 
-    def __build_dict_platform_codes(
-        self, platforms_names, platform_codes_file_path
-    ):
+    def __build_dict_platform_codes(self):
         """Returns a dictionary of Oracle platforms codes
         and names, filtered by the input platform names.
-
-        Args:
-            platforms_names (list): List of platforms names as defined by
-            Oracle.
-            platform_codes_file_path (str): Complete path of the
-            aru_platforms.xml file.
 
         Returns:
             dict: A dictionary of platform codes and names.
         """
-
+        platform_codes_file_path = (
+            self.target_dir
+            + os.path.sep
+            + "em_catalog"
+            + os.path.sep
+            + "aru_platforms.xml"
+        )
         aru_platforms_doc = xml.etree.ElementTree.parse(
             platform_codes_file_path
         )
         aru_platforms_doc_root = aru_platforms_doc.getroot()
 
-        self.__platforms = {
+        self.__all_platforms = {
             tag.get("id"): tag.text.strip()
             for tag in aru_platforms_doc_root.iterfind("./platform")
-            if tag.text.strip() in platforms_names
+            if tag.text.strip() in self.wanted_platforms
         }
 
     def __build_list_download_links(self, patch_number):
         """Returns a list containing download links for a given patch number
         and a list of platforms.
-
-        Args:
-            cookie_jar (requests.RequestsCookieJar): a cookie jar containing
-                Oracle Support connection information
-            patch_number (str): Oracle Patch number
-            list_platforms_codes (list): List of platforms codes as defined by
-                                        Oracle
 
         Returns:
             list: A list of links to be downloaded
@@ -463,7 +441,7 @@ class OraclePatchDownloader:
 
         self.__download_links = []
 
-        for platform in self.__platforms:
+        for platform in self.__all_platforms:
             resp = requests.get(
                 "https://updates.oracle.com/Orion/SimpleSearch/process_form",
                 params={
@@ -645,7 +623,7 @@ class OraclePatchDownloader:
         else:
             return ""
 
-    def __download_em_catalog(self, target_dir):
+    def __download_em_catalog(self):
         """Downloads em_catalog.zip from Oracle Support.
 
         This zipped file contains xml files with the latest patches and
@@ -654,23 +632,20 @@ class OraclePatchDownloader:
         The zipped file will be extracted to a subdirectory of target_dir named
         em_catalog.
 
-        Args:
-            target_dir (str): The target directory where patches are
-            downloaded.
         """
-        local_file_path = target_dir + os.path.sep + "em_catalog.zip"
-        local_directory_path = target_dir + os.path.sep + "em_catalog"
+        local_file_path = self.target_dir + os.path.sep + "em_catalog.zip"
+        local_directory_path = self.target_dir + os.path.sep + "em_catalog"
 
         if not pathlib.Path(local_file_path).is_file():
             self.__download_link(
                 "https://updates.oracle.com/download/em_catalog.zip",
                 None,
-                target_dir,
+                self.target_dir,
                 None,
                 dry_run_mode=False,
             )
 
-        pathlib.Path(target_dir + os.path.sep + "em_catalog").mkdir(
+        pathlib.Path(self.target_dir + os.path.sep + "em_catalog").mkdir(
             parents=True, exist_ok=True
         )
         logging.debug("Extract em_catalog.zip - Beginning")
@@ -678,11 +653,8 @@ class OraclePatchDownloader:
             cat_zip_file.extractall(local_directory_path)
         logging.debug("Extract em_catalog.zip - Ended")
 
-    def __build_dict_database_release_components(self, components_file_path):
+    def __build_dict_database_release_components(self):
         """Builds a dict of all database release components from the
-        em_catalog/components.xml file.
-
-        Also builds a dict of all database related components from the
         em_catalog/components.xml file.
 
         Format:
@@ -694,9 +666,14 @@ class OraclePatchDownloader:
                  "eol_premium": eol_premium}
             }
 
-        Args:
-            components_file_path (str): Complete path of components.xml file.
         """
+        components_file_path = (
+            self.target_dir
+            + os.path.sep
+            + "em_catalog"
+            + os.path.sep
+            + "components.xml"
+        )
         components_doc = xml.etree.ElementTree.parse(components_file_path)
 
         components_root = components_doc.getroot()
@@ -738,14 +715,15 @@ class OraclePatchDownloader:
                     "eol_premium": eol_premium,
                 }
 
-    def __process_patch_recommendations_file(self, recommendations_file_path):
-        """Processes the patch_recommendations.xml file.
-
-        Args:
-            recommendations_file_path (str): Complete path of
-            patch_recommendations.xml file.
-        """
-
+    def __process_patch_recommendations_file(self):
+        """Processes the patch_recommendations.xml file."""
+        recommendations_file_path = (
+            self.target_dir
+            + os.path.sep
+            + "em_catalog"
+            + os.path.sep
+            + "patch_recommendations.xml"
+        )
         path_counter = collections.Counter()
 
         self.__all_db_patches = {}
@@ -788,7 +766,7 @@ class OraclePatchDownloader:
             if access_level_tag is not None:
                 access_level = access_level_tag.text
             platform_id = elem.find("platform").get("id")
-            if platform_id in self.__platforms:
+            if platform_id in self.__all_platforms:
                 patch_files = []
                 for file in elem.iterfind("./files/file"):
                     download_url_tag = file.find("download_url")
@@ -846,7 +824,7 @@ class OraclePatchDownloader:
                 component_id = elem.get("cid")
                 for platform in elem:
                     platform_id = platform.get("id")
-                    if platform_id in self.__platforms:
+                    if platform_id in self.__all_platforms:
                         if (
                             component_id,
                             platform_id,
@@ -890,7 +868,7 @@ class OraclePatchDownloader:
                 component_id = elem.get("cid")
                 for platform in elem:
                     platform_id = platform.get("id")
-                    if platform_id in self.__platforms:
+                    if platform_id in self.__all_platforms:
                         if (
                             component_id,
                             platform_id,
@@ -985,8 +963,20 @@ class OraclePatchFile:
         return repr_str
 
 
+class OraclePatchType(Enum):
+    """Enum to list possible types of patches supported by the module.
+
+    Each type is downloaded to an specific folder.
+    """
+
+    AHF = "ahf"
+    OPATCH = "opatch"
+    QUARTER = "quarter_patches"
+
+
 class ChecksumMismatch(Exception):
     """Raised when the downloaded file checksum does not match Oracle's."""
+
 
 class OracleSupportError(Exception):
     """Raised when not able to log on to Oracle Support."""
