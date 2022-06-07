@@ -34,6 +34,8 @@ _CHUNK_SIZE = 2097152  # 2 MB
 
 _REQUEST_TIMEOUT = 30  # seconds
 
+_DESC_FILE_NAME = "description.txt"
+
 
 class OraclePatchDownloader:
     """Class that enables downloading Oracle patches
@@ -167,12 +169,9 @@ class OraclePatchDownloader:
                 + normalized_plat_dir_name
             )
             pathlib.Path(patch_dest_path).mkdir(parents=True, exist_ok=True)
-            desc_file_path = patch_dest_path + os.path.sep + "description.txt"
+            desc_file_path = patch_dest_path + os.path.sep + _DESC_FILE_NAME
 
-            if desc_file_path_counter[desc_file_path] > 0:
-                desc_file_open_mode = "at"
-            else:
-                desc_file_open_mode = "wt"
+            desc_file_open_mode = "at"
 
             with open(
                 desc_file_path, encoding="utf-8", mode=desc_file_open_mode
@@ -194,6 +193,7 @@ class OraclePatchDownloader:
                         )
                         logging.error(error_str)
                         continue
+
                     for file in patch.files:
                         print(
                             f"{file.name} - {patch.description}",
@@ -212,13 +212,32 @@ class OraclePatchDownloader:
                             error_str = (
                                 f"{file.name}"
                                 " checksum does not match Oracle's checksum. "
-                                "Please remove it manually and download it again."
+                                "Please remove it manually and download it "
+                                "again."
                             )
                             logging.error(error_str)
 
                 desc_file_path_counter[desc_file_path] += 1
 
+        self.__remove_duplicate_lines_desc_files(target_dir)
+
         return total_downloaded_bytes
+
+    @staticmethod
+    def __remove_duplicate_lines_desc_files(target_dir):
+        """Removes duplicate lines from description.txt files.
+
+        Args:
+            target_dir (str): target_dir (str): The target directory where
+            patches are downloaded.
+        """
+        desc_file_list = pathlib.Path(target_dir).glob(f"**/{_DESC_FILE_NAME}")
+        for desc_file in desc_file_list:
+            with open(desc_file, "r+t", encoding="utf-8") as desc_file_handler:
+                desc_lines_set = sorted(set(desc_file_handler.readlines()))
+                desc_file_handler.seek(os.SEEK_SET)
+                desc_file_handler.truncate(0)
+                desc_file_handler.writelines(desc_lines_set)
 
     @staticmethod
     def __is_expression_ignored(ignored_expressions, expression) -> bool:
@@ -279,7 +298,7 @@ class OraclePatchDownloader:
             )
 
         if not self.__recommended_db_patches:
-            logging.debug("Process patch_recommendations.xml - Beggining")
+            logging.debug("Process patch_recommendations.xml - Beginning")
             self.__process_patch_recommendations_file(
                 em_catalog_dir + os.path.sep + "patch_recommendations.xml"
             )
@@ -609,7 +628,7 @@ class OraclePatchDownloader:
         pathlib.Path(target_dir + os.path.sep + "em_catalog").mkdir(
             parents=True, exist_ok=True
         )
-        logging.debug("Extract em_catalog.zip - Beggining")
+        logging.debug("Extract em_catalog.zip - Beginning")
         with zipfile.ZipFile(local_file_path, "r") as cat_zip_file:
             cat_zip_file.extractall(local_directory_path)
         logging.debug("Extract em_catalog.zip - Ended")
