@@ -10,6 +10,9 @@ Author: Lucas Pimentel Lellis
 Configuration: modify config.json.template to config.json and fill in the
                required information.
 
+Based on getMOSPatch v2 from Maris Elsins
+(https://github.com/MarisElsins/getMOSPatch).
+
 Requires:
     - requests
     - beautifulsoup4

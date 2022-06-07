@@ -7,6 +7,9 @@ Requires:
     - beautifulsoup4
     - html5lib
 
+Based on getMOSPatch v2 from Maris Elsins
+(https://github.com/MarisElsins/getMOSPatch).
+
 Version: $Id$
 
 """
