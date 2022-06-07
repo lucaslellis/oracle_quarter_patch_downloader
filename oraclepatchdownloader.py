@@ -45,14 +45,17 @@ class OraclePatchDownloader:
     Author: Lucas Pimentel Lellis
     """
 
-    __cookie_jar = None
-    __platforms = None
-    __download_links = None
-    __db_release_components = None
-    __all_db_patches = None
-    __recommended_db_patches = None
-    username = None
-    password = None
+    def __init__(self):
+        """Creates an instance of OraclePatchDownloader
+        """
+        self.__cookie_jar = None
+        self.__platforms = None
+        self.__download_links = None
+        self.__db_release_components = None
+        self.__all_db_patches = None
+        self.__recommended_db_patches = None
+        self.username = None
+        self.password = None
 
     def list_platforms(
         self, target_dir
