@@ -10,7 +10,7 @@ Based on [getMosPatch from Maris Elsins.](https://github.com/MarisElsins/getMOSP
 
 ## Requirements
 
-* Python >= 3.5
+* Python >= 3.6
 * Packages listed on [requirements.txt](requirements.txt)
 
 ## Instructions
