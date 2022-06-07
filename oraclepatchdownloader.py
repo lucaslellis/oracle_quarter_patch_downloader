@@ -7,6 +7,8 @@ Requires:
     - beautifulsoup4
     - html5lib
 
+Version: $Id$
+
 """
 
 import collections
