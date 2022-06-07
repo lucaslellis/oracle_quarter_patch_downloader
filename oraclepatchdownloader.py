@@ -929,14 +929,6 @@ class OraclePatchDownloader:
 class OraclePatch:
     """Structure grouping attributes of an Oracle Patch."""
 
-    uid = None
-    number = None
-    platform_code = None
-    release_name = None
-    description = None
-    access_level = None
-    files = None
-
     def __init__(
         self,
         uid,
@@ -975,11 +967,6 @@ class OraclePatch:
 
 class OraclePatchFile:
     """Structure grouping attributes of an Oracle Patch file."""
-
-    download_url = None
-    sha256sum = None
-    name = None
-    size = None
 
     def __init__(self, download_url, sha256sum, name, size):
         self.download_url = download_url
