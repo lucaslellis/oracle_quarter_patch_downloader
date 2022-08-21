@@ -116,8 +116,6 @@ class OraclePatchDownloader:
             logging.info("No catalog found. Downloading %s.", catfile)
             total_downloaded_bytes += self.__download_em_catalog()
 
-        total_downloaded_bytes += self.__download_em_catalog()
-
         if self.__all_platforms is None:
             self.__build_dict_platform_codes()
 
@@ -764,6 +762,8 @@ class OraclePatchDownloader:
         em_catalog.
 
         """
+        print("***** CALLING __download_em_catalog")
+
         total_downloaded_bytes = 0
         local_file_path = self.target_dir + os.path.sep + "em_catalog.zip"
         local_directory_path = self.target_dir + os.path.sep + "em_catalog"
