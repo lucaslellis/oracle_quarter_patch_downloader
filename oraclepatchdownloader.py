@@ -123,9 +123,9 @@ class OraclePatchDownloader:
             self.__build_dict_database_release_components()
 
         if not self.__recommended_db_patches and not download_from_file:
-            logging.debug("Process patch_recommendations.xml - Beginning")
+            logging.info("Process patch_recommendations.xml - Beginning")
             self.__process_patch_recommendations_file()
-            logging.debug("Process patch_recommendations.xml - Ended")
+            logging.info("Process patch_recommendations.xml - Ended")
         return total_downloaded_bytes
 
     def list_platforms(self) -> list:
