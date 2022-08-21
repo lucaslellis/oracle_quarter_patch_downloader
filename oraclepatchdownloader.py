@@ -105,7 +105,7 @@ class OraclePatchDownloader:
         try:
             catfile = self.target_dir + os.path.sep + "em_catalog.zip"
             catfilestat = os.stat(catfile)
-            if catfilestat.st_mtime < time.time() - 60*60*24:
+            if catfilestat.st_mtime < time.time() - 60 * 60 * 24:
                 logging.info("Catalog too old. Redownloading %s.", catfile)
                 self.cleanup_downloader_resources()
                 total_downloaded_bytes += self.__download_em_catalog()
@@ -465,12 +465,12 @@ class OraclePatchDownloader:
             of the file to download.
         """
         downloads = []
-        logging.debug("Getting patch information for %s on %s.", patch_number, platform)
+        logging.debug(
+            "Getting patch information for %s on %s.", patch_number, platform
+        )
         resp = requests.get(
             "https://updates.oracle.com/Orion/Services/search",
-            params={
-                "bug": patch_number
-            },
+            params={"bug": patch_number},
             headers=_HEADERS,
             cookies=self.__cookie_jar,
             timeout=_REQUEST_TIMEOUT,
@@ -479,28 +479,36 @@ class OraclePatchDownloader:
         root = xml.etree.ElementTree.fromstring(resp.text)
 
         # If required we can keep the XML in a file as follows:
-        #infofile = open(f"{patch_number}.xml","w")
-        #n = infofile.write(resp.text)
-        #infofile.close()
+        # infofile = open(f"{patch_number}.xml","w")
+        # n = infofile.write(resp.text)
+        # infofile.close()
 
         # We want all the files which match our architecture. This
         # document lists all files. So we need to search the XML
 
-        #for patchinfo.findall(f"//patch[platform[@id={platform}]]/files/file/download_url/text()")
-        for patch in root.iter('patch'):
-            patch_platform = patch.find('platform').attrib["id"]
-            logging.debug("Patch platform: %s, Wanted platform: %s", patch_platform, platform)
+        # for patchinfo.findall(
+        #   f"//patch[platform[@id={platform}]]/files/file/download_url/text()"
+        # )
+        for patch in root.iter("patch"):
+            patch_platform = patch.find("platform").attrib["id"]
+            logging.debug(
+                "Patch platform: %s, Wanted platform: %s",
+                patch_platform,
+                platform,
+            )
             if patch_platform == platform:
                 # We want these files
-                logging.debug('Platform match')
-                files=patch.find('files')
-                for patch_file in files.findall('file'):
-                    patch_download_host = patch_file.find('download_url').attrib['host']
-                    patch_download_url = patch_file.find('download_url').text
-                    patch_file_name = patch_file.find('name').text
+                logging.debug("Platform match")
+                files = patch.find("files")
+                for patch_file in files.findall("file"):
+                    patch_download_host = patch_file.find(
+                        "download_url"
+                    ).attrib["host"]
+                    patch_download_url = patch_file.find("download_url").text
+                    patch_file_name = patch_file.find("name").text
                     logging.debug("URL: %s", patch_download_url)
-                    for patch_digest in patch_file.findall('digest'):
-                        if patch_digest.attrib['type'] == "SHA-256":
+                    for patch_digest in patch_file.findall("digest"):
+                        if patch_digest.attrib["type"] == "SHA-256":
                             patch_sha = patch_digest.text
                     downloads.append(
                         {
@@ -514,25 +522,31 @@ class OraclePatchDownloader:
                     logging.debug("NAME: %s", patch_file_name)
         return downloads
 
-    def download_patch_files(self, patch_number, platform, subdir,
-                             progress_function=None, dry_run_mode=True):
-        """ Download files for a given patch number and numeric platform
+    def download_patch_files(
+        self,
+        patch_number,
+        platform,
+        subdir,
+        progress_function=None,
+        dry_run_mode=True,
+    ):
+        """Download files for a given patch number and numeric platform
         code.
 
         Returns:
            int: Bytes downloaded.
         """
-        dldir=os.path.join(self.target_dir,subdir)
+        dldir = os.path.join(self.target_dir, subdir)
         bytes_downloaded = 0
         files_to_download = self.get_patch_info(patch_number, platform)
         for file_to_download in files_to_download:
             pathlib.Path(dldir).mkdir(parents=True, exist_ok=True)
-            logging.debug("Downloading file %s", file_to_download['url'])
+            logging.debug("Downloading file %s", file_to_download["url"])
             logging.debug("              to %s", dldir)
             try:
                 bytes_downloaded += self.__download_link(
-                    file_to_download['url'],
-                    file_to_download['sha'],
+                    file_to_download["url"],
+                    file_to_download["sha"],
                     dldir,
                     progress_function,
                     dry_run_mode,

@@ -32,7 +32,11 @@ import sys
 
 from requests import RequestException
 
-from oraclepatchdownloader import OraclePatchDownloader, OraclePatchType, OracleSupportError
+from oraclepatchdownloader import (
+    OraclePatchDownloader,
+    OraclePatchType,
+    OracleSupportError,
+)
 
 _AHF_PATCH_NUMBER = "30166242"
 _OPATCH_PATCH_NUMBER = "6880880"
@@ -85,6 +89,7 @@ def print_platforms(patch_dler):
         for plat_code, plat_value in sorted_platforms:
             print(f"{plat_code:6} - {plat_value}")
 
+
 def handle_file(filehandle, patch_dler, dry_run_mode=True):
     """Download the patches listed in the passed file
     Arguments:
@@ -104,15 +109,21 @@ def handle_file(filehandle, patch_dler, dry_run_mode=True):
     bytes_downloaded = 0
 
     with filehandle as patch_list_handle:
-        patchreader = csv.reader(filter(lambda row: row[0]!='#',
-            patch_list_handle))
+        patchreader = csv.reader(
+            filter(lambda row: row[0] != "#", patch_list_handle)
+        )
         for patchinfo in patchreader:
             if len(patchinfo) != 5:
-                logging.warning("Skipping as line doesn't have 5 columns: %s",
-                                ','.join(map(str, patchinfo)))
+                logging.warning(
+                    "Skipping as line doesn't have 5 columns: %s",
+                    ",".join(map(str, patchinfo)),
+                )
                 continue
-            logging.debug("Downloading Patch %s for platform %s",
-                          patchinfo[0], patchinfo[4])
+            logging.debug(
+                "Downloading Patch %s for platform %s",
+                patchinfo[0],
+                patchinfo[4],
+            )
             # Is the platform a number, if not convert it.
             if patchinfo[4].isnumeric():
                 platform = int(patchinfo[4])
@@ -121,12 +132,16 @@ def handle_file(filehandle, patch_dler, dry_run_mode=True):
                 platform = 2000
             else:
                 if patchinfo[4] in platforms.values():
-                    platform = list(platforms.keys())[list(
-                        platforms.values()).index(patchinfo[4])]
+                    platform = list(platforms.keys())[
+                        list(platforms.values()).index(patchinfo[4])
+                    ]
                 else:
-                    logging.warning("Platform (%s) for patch %s} is missing."
-                                    " Skipping this line.",
-                                    patchinfo[4], patchinfo[0])
+                    logging.warning(
+                        "Platform (%s) for patch %s} is missing."
+                        " Skipping this line.",
+                        patchinfo[4],
+                        patchinfo[0],
+                    )
                     continue
 
             bytes_downloaded += patch_dler.download_patch_files(
@@ -137,6 +152,7 @@ def handle_file(filehandle, patch_dler, dry_run_mode=True):
                 dry_run_mode,
             )
     return bytes_downloaded
+
 
 def get_ora_pass(argpass, jsonpass):
     """Returns the password for Oracle support. If specified on the
@@ -152,10 +168,11 @@ def get_ora_pass(argpass, jsonpass):
         str: The password to  use
     """
     if argpass:
-        if argpass == '*':
-            return getpass.getpass(prompt='Oracle Support Password: ')
+        if argpass == "*":
+            return getpass.getpass(prompt="Oracle Support Password: ")
         return argpass
     return jsonpass
+
 
 def get_ora_user(arguser, jsonuser):
     """Returns the username for Oracle support. If specified on the
@@ -173,6 +190,7 @@ def get_ora_user(arguser, jsonuser):
         return arguser
     return jsonuser
 
+
 def read_cli_args():
     """Reads command line interface arguments.
 
@@ -182,7 +200,7 @@ def read_cli_args():
     cli_args_parser = argparse.ArgumentParser(
         description="Downloads Oracle recommended patches for the current "
         "quarter. Alternatively download patches specified in a csv file.",
-        prefix_chars='+-'
+        prefix_chars="+-",
     )
     cli_args_parser.add_argument(
         "--dry-run",
@@ -201,23 +219,24 @@ def read_cli_args():
     )
     cli_args_parser.add_argument(
         "-f",
-        type=argparse.FileType('r', encoding="utf-8"),
+        type=argparse.FileType("r", encoding="utf-8"),
         action="store",
         required=False,
         help="Download the list of patches in the specified CSV file. "
-             "See patches.csv.template for an example. If this is not "
-             "specified, the recomended patches are downloaded.",
+        "See patches.csv.template for an example. If this is not "
+        "specified, the recomended patches are downloaded.",
         dest="patch_list_file",
     )
     cli_args_parser.add_argument(
         "-p",
         "--password",
         type=str,
-        nargs='?',
-        const='*',
+        nargs="?",
+        const="*",
         required=False,
-        help="Oracle support password. Prompted if not specified on command line. "
-             "Read from json config if omitted.",
+        help="Oracle support password. "
+        "Prompted if not specified on command line. "
+        "Read from json config if omitted.",
         dest="oracle_password",
     )
     cli_args_parser.add_argument(
@@ -227,7 +246,7 @@ def read_cli_args():
         action="store",
         required=False,
         help="Username to connect to Oracle Support. "
-             "Read from json config if omitted.",
+        "Read from json config if omitted.",
         dest="oracle_username",
     )
     cli_args_parser.add_argument(
@@ -276,19 +295,25 @@ def main(argv=None):
         return 1
 
     patch_dler = OraclePatchDownloader(
-            username=get_ora_user(cli_args.oracle_username, config_json["username"]),
-            password=get_ora_pass(cli_args.oracle_password, config_json["password"]),
-            wanted_platforms=config_json["platforms"],
-            target_dir=config_json["target_dir"],
-            )
-    #if not cli_args.debug_mode:
+        username=get_ora_user(
+            cli_args.oracle_username, config_json["username"]
+        ),
+        password=get_ora_pass(
+            cli_args.oracle_password, config_json["password"]
+        ),
+        wanted_platforms=config_json["platforms"],
+        target_dir=config_json["target_dir"],
+    )
+    # if not cli_args.debug_mode:
     #    logging.debug("Cleaning up the em_catalog* files")
     #    patch_dler.cleanup_downloader_resources()
     #    logging.debug("Finished")
 
     print("Initializing Downloader.")
     try:
-        total_downloaded_bytes = patch_dler.initialize_downloader(cli_args.patch_list_file)
+        total_downloaded_bytes = patch_dler.initialize_downloader(
+            cli_args.patch_list_file
+        )
     except (RequestException, OracleSupportError) as excep:
         error_str = (
             f"Not able to connect to updates.oracle.com\n"
@@ -334,12 +359,12 @@ def main(argv=None):
 
     # Looks like original idea was to indicate file size rather than download amount.
     ## em_catalog.zip and em_catalog directory occupy around 300 MB
-    #total_downloaded_bytes += 300 * 1024 * 1024
+    # total_downloaded_bytes += 300 * 1024 * 1024
     print(f"Total downloaded ~ {total_downloaded_bytes/1024/1024:,.2f} MB")
 
     # Leave the resources for reuse later if appropriate. This should
     # improve performance.
-    #if not cli_args.debug_mode:
+    # if not cli_args.debug_mode:
     #    logging.debug("Cleaning up the em_catalog* files")
     #    patch_dler.cleanup_downloader_resources()
     #    logging.debug("Finished")
