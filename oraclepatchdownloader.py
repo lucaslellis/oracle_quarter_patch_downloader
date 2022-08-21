@@ -104,6 +104,7 @@ class OraclePatchDownloader:
         # See if we have one from within the last 24 hours.
         try:
             catfile = self.target_dir + os.path.sep + "em_catalog.zip"
+            logging.debug("Expected catalog location: %s", catfile)
             catfilestat = os.stat(catfile)
             if catfilestat.st_mtime < time.time() - 60 * 60 * 24:
                 logging.info("Catalog too old. Redownloading %s.", catfile)

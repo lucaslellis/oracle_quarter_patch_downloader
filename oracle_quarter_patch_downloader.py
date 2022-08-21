@@ -257,6 +257,14 @@ def read_cli_args():
         help="Only prints the list of platform codes and names",
         dest="list_platforms_only",
     )
+    cli_args_parser.add_argument(
+        "-r",
+        "--refresh-catalog",
+        action="store_true",
+        required=False,
+        help="Forcefully download a new em_catalog.zip",
+        dest="refresh_catalog",
+    )
 
     cli_args = cli_args_parser.parse_args()
     return cli_args
@@ -304,10 +312,11 @@ def main(argv=None):
         wanted_platforms=config_json["platforms"],
         target_dir=config_json["target_dir"],
     )
-    # if not cli_args.debug_mode:
-    #    logging.debug("Cleaning up the em_catalog* files")
-    #    patch_dler.cleanup_downloader_resources()
-    #    logging.debug("Finished")
+
+    if cli_args.refresh_catalog:
+        logging.debug("Cleaning up the em_catalog* files")
+        patch_dler.cleanup_downloader_resources()
+        logging.debug("Finished")
 
     print("Initializing Downloader.")
     try:
@@ -357,17 +366,12 @@ def main(argv=None):
             dry_run_mode=cli_args.dry_run_mode,
         )
 
-    # Looks like original idea was to indicate file size rather than download amount.
+    # Looks like original idea was to indicate file size rather than
+    # download amount.
     ## em_catalog.zip and em_catalog directory occupy around 300 MB
     # total_downloaded_bytes += 300 * 1024 * 1024
     print(f"Total downloaded ~ {total_downloaded_bytes/1024/1024:,.2f} MB")
 
-    # Leave the resources for reuse later if appropriate. This should
-    # improve performance.
-    # if not cli_args.debug_mode:
-    #    logging.debug("Cleaning up the em_catalog* files")
-    #    patch_dler.cleanup_downloader_resources()
-    #    logging.debug("Finished")
     return 0
 
 
