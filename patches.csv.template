@@ -1,0 +1,26 @@
+# Fields are as follows:
+# - Patch ID - Patch number as per a simple search. Generally forms part of the
+#   filename.
+# - CPU|Version|blank - Currently unused.
+# - Description - Description for convenience of the user.
+# - Group - Subdirectory to place the patch into.
+# - OS (Linux x86-64 | Microsoft Windows x64 (64-bit)) for Generic leave blank
+#   As per the platform code or name returned from using the -l argument.
+#
+# Note 1:
+# The following specifies two OPatch patches. Every version of these will be
+# downloaded. These are probably better downloaded using the patch recomendations
+# i.e. without the -f argument, as it is possible to restrict the version numbers
+# with that approach.
+#
+6880880,,OPatch,CriticalPatches/OPatch,Linux x86-64
+6880880,,OPatch,CriticalPatches/OPatch,Microsoft Windows x64 (64-bit)
+34133642,,DB Release Update,CriticalPatches/dbclient,Linux x86-64
+34110685,,DB Release Update,CriticalPatches/dbclient,Microsoft Windows x64 (64-bit)
+34170398,,Java 11 Linux,java,Linux x86-64
+34170398,,Java 11 Linux,java,Microsoft Windows x64 (64-bit)
+34170400,,JDK 8 Windows,java,Linux x86-64
+34170400,,JDK 8 Windows,java,Microsoft Windows x64 (64-bit)
+34445145,,WebLogic Server 14.1.1 Stack Patch Bundle,weblogic,
+33735306,,Oracle Tuxedo 12.2.2 SPU,Tuxedo,Linux x86-64
+33735306,,Oracle Tuxedo 12.2.2 SPU,Tuxedo,Microsoft Windows x64 (64-bit)

@@ -7,8 +7,7 @@ catalog (same catalog used by Enterprise Manager).
 * OPatch
 * Autonomous Health Framework
 
-Based on [getMOSPatch from Maris Elsins.](https://github.com/MarisElsins/getMOSPatch/) If you need to download an
-specific set of patches, [getMOSPatch](https://github.com/MarisElsins/getMOSPatch/) is the better option.
+Based on [getMOSPatch from Maris Elsins.](https://github.com/MarisElsins/getMOSPatch/)
 
 ## Requirements
 
@@ -37,20 +36,37 @@ specific set of patches, [getMOSPatch](https://github.com/MarisElsins/getMOSPatc
 
   ```default
   [lucas@vm01 oracle_quarter_patch_downloader]$ ./oracle_quarter_patch_downloader.py -h
-  usage: oracle_quarter_patch_downloader.py [-h] [--dry-run] [--debug] [-l]
+  usage: oracle_quarter_patch_downloader.py [-h] [--dry-run] [--debug]
+              [-f PATCH_LIST_FILE]
+              [-p [ORACLE_PASSWORD]]
+              [-u ORACLE_USERNAME] [-l]
 
-  Downloads Oracle recommended patches for the current quarter.
+  Downloads Oracle recommended patches for the current quarter. Alternatively
+  download patches specified in a csv file.
 
   optional arguments:
     -h, --help            show this help message and exit
     --dry-run             Returns the amount that will be downloaded (in MB) but
-                          does not download the patches
+        does not download the patches
     --debug               Increases the level of information during the
-                          execution
+        execution
+    -f PATCH_LIST_FILE    Download the list of patches in the specified CSV
+        file. See patches.csv.template for an example. If this
+        is not specified, the recomended patches are
+        downloaded.
+    -p [ORACLE_PASSWORD], --password [ORACLE_PASSWORD]
+        Oracle support password. Prompted if not specified on
+        command line. Read from json config if omitted.
+    -u ORACLE_USERNAME, --user ORACLE_USERNAME
+        Username to connect to Oracle Support. Read from json
+        config if omitted.
     -l, --list-platforms-only
-                          Only prints the list of platform codes and names
+        Only prints the list of platform codes and names
+
   [lucas@vm01 oracle_quarter_patch_downloader]$
   ```
+
+### Recomended Patches Mode
 
 * List the platforms available and choose which ones should have the patches downloaded by filling the `platforms`
   section on `config.json`
@@ -222,3 +238,30 @@ specific set of patches, [getMOSPatch](https://github.com/MarisElsins/getMOSPatc
   p33803476_190000_Linux-x86-64.zip - GI RELEASE UPDATE 19.15.0.0.0
   [lucas@vm01 patches]$
   ```
+
+### Patch List Mode
+
+Not all applications have patches listed in the recommeded list, so they will
+need to be downloaded seperately. To enable this, it is possible to specify a
+list of patches and platforms and download the relevant patch zip files. Use
+[patches.csv.template](patches.csv.template) as a guide to create (e.g.)
+`patches.csv`, then use the following to download the patches:
+
+  ```bash
+  ./oracle_quarter_patch_downloader.py -f patches.csv
+  ```
+
+At present this will download every version of a patch file that is available.
+
+## References
+
+* [Sun patch download options](https://blogs.oracle.com/solaris/post/useful-oracle-sun-patch-download-options-including-metadata-readmes).
+  This is also useful for Oracle patches.
+* [berxblog](https://berxblog.blogspot.com/2019/10/oracle-patches-some-basics-and-good-to.html)
+  Partial list of Oracle APIs
+* Connor Mcdonald [Updating Opatch](https://connor-mcdonald.com/2021/07/09/keeping-opatch-updated-with-a-simple-sql-query/)
+  and [Updating APEX](https://connor-mcdonald.com/2020/11/06/application-express-the-pse-update/)
+* [JLTGordons patch downloader](https://github.com/jltgordon/patch-downloader)
+  insipiration for the patch list mode.
+* [Oracle support Doc ID 980924.1](https://support.oracle.com/rs?type=doc&id=980924.1)
+  provides limited information on automating patch downloads.
