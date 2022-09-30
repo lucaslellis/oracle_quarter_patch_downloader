@@ -144,13 +144,18 @@ def handle_file(filehandle, patch_dler, dry_run_mode=True):
                     )
                     continue
 
-            bytes_downloaded += patch_dler.download_patch_files(
+            patchsz = patch_dler.download_patch_files(
                 patchinfo[0],
-                platform,
+                str(platform),
                 patchinfo[3],
                 print_progress_function,
                 dry_run_mode,
             )
+            if patchsz == 0:
+                logging.warning('No data downloaded for patch %s platform %s.',
+                    patchinfo[0],
+                    patchinfo[4])
+            bytes_downloaded += patchsz
     return bytes_downloaded
 
 
