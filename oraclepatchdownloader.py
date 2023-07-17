@@ -400,6 +400,7 @@ class OraclePatchDownloader:
             if (
                 status_code == HTTPStatus.FOUND
                 or status_code == HTTPStatus.TEMPORARY_REDIRECT
+                or status_code == HTTPStatus.MOVED_PERMANENTLY
             ):
                 location = login_response.headers["Location"]
                 if location.startswith("/"):
@@ -417,9 +418,12 @@ class OraclePatchDownloader:
                 self.__cookie_jar.update(login_response.cookies)
                 status_code = login_response.status_code
 
-            if status_code == HTTPStatus.OK:
+            elif status_code == HTTPStatus.OK:
                 self.__cookie_jar.update(login_response.cookies)
                 break
+                
+            else:
+                logging.fatal(f"Unexpected HTTP status code from login: {status_code}")
 
         if login_response.status_code == HTTPStatus.UNAUTHORIZED:
             return 1
